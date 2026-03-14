@@ -5,79 +5,11 @@ import * as htmlToImage from 'html-to-image';
 import { db, auth, signIn, logOut } from './firebase';
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-
-interface Slot {
-  start: Date;
-  end: Date;
-  resourceId: string;
-  price2h?: number;
-}
-
-interface PollOption {
-  text: string;
-  voter_count: number;
-  price2h?: number;
-}
-
-interface VoterInfo {
-  userId: number;
-  name: string;
-  username?: string;
-  optionIds: number[];
-  votedAt: number;
-}
-
-interface SentSummary {
-  messageId: number;
-  chatId: string;
-  text: string;
-  users: {
-    userId: number;
-    name: string;
-    username?: string;
-    total: number;
-    paid: boolean;
-  }[];
-  timestamp: number;
-}
-
-interface SentLineup {
-  messageId: number;
-  chatId: string;
-  text: string;
-  optionIndex: number;
-  timestamp: number;
-}
-
-interface ActivePoll {
-  id: string;
-  messageId: number;
-  question: string;
-  options: PollOption[];
-  totalVoterCount: number;
-  createdAt: number;
-  voterAnswers?: { [userId: number]: VoterInfo };
-  sentSummaries?: SentSummary[];
-  sentLineups?: SentLineup[];
-}
-
-interface MergedSlot {
-  dateStr: string;
-  date: Date;
-  start: Date;
-  end: Date;
-  resourceName: string;
-  price2h?: number;
-}
-
-const getWeekId = (d: Date) => {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const dayNum = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-  return `${date.getUTCFullYear()}-${weekNo.toString().padStart(2, '0')}`;
-};
+import { Slot, PollOption, VoterInfo, SentSummary, SentLineup, ActivePoll, MergedSlot } from './types';
+import { getWeekId, formatTime, formatWeekday, formatDate, formatPollOption, getBest2hWindow } from './utils';
+import { SettingsModal } from './components/SettingsModal';
+import { Header } from './components/Header';
+import { ActivePollsTab } from './components/ActivePollsTab';
 
 export default function App() {
   const [results, setResults] = useState<MergedSlot[]>([]);
@@ -1276,59 +1208,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-neutral-50 p-4 md:p-8 font-sans text-neutral-900">
       <div className="max-w-6xl mx-auto space-y-8">
-        <header className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">Court Availability Finder</h1>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-2">
-              <p className="text-neutral-500">Find weekday slots of 2 hours or more at SportsHouse.</p>
-              <a 
-                href="https://apps.daysmartrecreation.com/dash/x/#/online/sportshouse/login?noAutoLogin=1" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
-              >
-                Book on SportsHouse
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {user ? (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-neutral-600 font-medium">{user.email}</span>
-                <button 
-                  onClick={logOut}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-neutral-700 bg-white border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                  Sign Out
-                </button>
-              </div>
-            ) : (
-              <button 
-                onClick={async () => {
-                  try {
-                    await signIn();
-                  } catch (error: any) {
-                    console.error('Sign in error:', error);
-                    alert(`Sign in failed: ${error.message}\n\nIf you are running this locally, make sure your local URL (e.g., localhost or 127.0.0.1) is added to the Authorized Domains in the Firebase Console (Authentication -> Settings -> Authorized domains).`);
-                  }
-                }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
-              >
-                <LogIn className="w-4 h-4" />
-                Sign In to Sync
-              </button>
-            )}
-            <button
-              onClick={() => setShowSettings(true)}
-              className="p-2 rounded-xl border bg-white border-neutral-200 text-neutral-700 hover:bg-neutral-50 transition-colors shadow-sm"
-              title="Settings"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-          </div>
-        </header>
+        <Header user={user} setShowSettings={setShowSettings} />
 
         <div className="space-y-6">
           {error && (
@@ -1371,101 +1251,13 @@ export default function App() {
             </div>
 
             {activeTab === 'polls' ? (
-              <div className="flex-1 flex flex-col">
-                <div className="p-4 border-b border-neutral-100 bg-neutral-50/30 flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-neutral-500 uppercase tracking-wider flex items-center gap-2">
-                    <Send className="w-4 h-4" />
-                    Poll Management
-                  </h3>
-                  {activePolls.length > 0 && (
-                    <button 
-                      onClick={refreshPolls}
-                      disabled={isRefreshingPolls}
-                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg border border-indigo-200 shadow-sm transition-all disabled:opacity-50"
-                    >
-                      {isRefreshingPolls ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-                      Refresh Results
-                    </button>
-                  )}
-                </div>
-                
-                <div className="p-6 flex-1">
-                  {activePolls.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {activePolls.map(poll => (
-                        <div 
-                          key={poll.id} 
-                          onClick={() => setSelectedPollForDetails(poll)}
-                          className="bg-white p-4 rounded-2xl border border-neutral-200 shadow-sm relative group cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all"
-                        >
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removePoll(poll.id);
-                            }}
-                            className="absolute top-3 right-3 p-1.5 text-neutral-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-white rounded-lg shadow-sm border border-neutral-100"
-                            title="Remove from list"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                          <div className="mb-2">
-                            {poll.sentSummaries && poll.sentSummaries.length > 0 ? (
-                              <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 w-fit">
-                                <div className="w-1 h-1 bg-indigo-500 rounded-full" />
-                                Finalized
-                              </span>
-                            ) : (
-                              <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 w-fit">
-                                <div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
-                                Live
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm font-bold text-neutral-900 mb-4 pr-8 line-clamp-2 leading-tight">{poll.question}</p>
-                          <div className="space-y-2.5">
-                            {poll.options.map((opt, i) => {
-                              const percentage = poll.totalVoterCount > 0 ? (opt.voter_count / poll.totalVoterCount) * 100 : 0;
-                              return (
-                                <div key={i} className="space-y-1">
-                                  <div className="flex justify-between text-[11px] text-neutral-600 font-medium">
-                                    <span className="truncate pr-2">{opt.text}</span>
-                                    <span className="font-bold text-indigo-600">{opt.voter_count}</span>
-                                  </div>
-                                  <div className="h-1.5 w-full bg-neutral-100 rounded-full overflow-hidden">
-                                    <div 
-                                      className="h-full bg-indigo-500 transition-all duration-500" 
-                                      style={{ width: `${percentage}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                          <div className="mt-4 pt-3 border-t border-neutral-50 text-[10px] text-neutral-400 flex justify-between items-center">
-                            <span className="flex items-center gap-1">
-                              <CalendarDays className="w-3 h-3" />
-                              {new Date(poll.createdAt).toLocaleDateString()}
-                            </span>
-                            <span className="font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-md">
-                              {poll.totalVoterCount} total votes
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-neutral-400 space-y-4 py-20">
-                      <div className="w-20 h-20 rounded-full bg-neutral-50 flex items-center justify-center">
-                        <Send className="w-10 h-10 text-neutral-300" />
-                      </div>
-                      <div className="text-center">
-                        <p className="text-neutral-600 font-medium">No active polls</p>
-                        <p className="text-sm mt-1">Create a poll from the Available Slots tab to see it here.</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <ActivePollsTab
+                activePolls={activePolls}
+                refreshPolls={refreshPolls}
+                isRefreshingPolls={isRefreshingPolls}
+                setSelectedPollForDetails={setSelectedPollForDetails}
+                removePoll={removePoll}
+              />
             ) : (
               <div className="flex-1 flex flex-col">
                 <div className="bg-neutral-50 border-b border-neutral-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1771,126 +1563,27 @@ export default function App() {
     </div>
   </div>
 
-      {showSettings && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-              <div className="p-6 border-b border-neutral-100 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-neutral-900">Settings</h3>
-                <button 
-                  onClick={() => setShowSettings(false)}
-                  className="p-2 hover:bg-neutral-100 rounded-full transition-colors"
-                >
-                  <X className="w-5 h-5 text-neutral-500" />
-                </button>
-              </div>
-              <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-                <section className="space-y-4">
-                  <h4 className="text-sm font-bold text-neutral-400 uppercase tracking-wider">SportsHouse API</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-neutral-700 mb-1">Start Date</label>
-                      <input 
-                        type="date" 
-                        value={startDate}
-                        onChange={e => setStartDate(e.target.value)}
-                        className="w-full p-2.5 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-neutral-700 mb-1">End Date</label>
-                      <input 
-                        type="date" 
-                        value={endDate}
-                        onChange={e => setEndDate(e.target.value)}
-                        className="w-full p-2.5 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-neutral-700 mb-1">Email / Username</label>
-                    <input 
-                      type="text" 
-                      value={username}
-                      onChange={e => setUsername(e.target.value)}
-                      className="w-full p-2.5 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      placeholder="Enter your email"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-neutral-700 mb-1">Password</label>
-                    <input 
-                      type="password" 
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      className="w-full p-2.5 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      placeholder="Enter your password"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="rememberMe"
-                      checked={rememberMe}
-                      onChange={(e) => setRememberMe(e.target.checked)}
-                      className="w-4 h-4 text-indigo-600 border-neutral-300 rounded focus:ring-indigo-500"
-                    />
-                    <label htmlFor="rememberMe" className="text-sm text-neutral-700 cursor-pointer">
-                      Remember credentials
-                    </label>
-                  </div>
-                </section>
-
-                <hr className="border-neutral-100" />
-
-                <section className="space-y-4">
-                  <h4 className="text-sm font-bold text-neutral-400 uppercase tracking-wider">Telegram Notifications</h4>
-                  <div>
-                    <label className="block text-sm font-medium text-neutral-700 mb-1">Bot Token</label>
-                    <input 
-                      type="password" 
-                      value={tgBotToken}
-                      onChange={e => setTgBotToken(e.target.value)}
-                      className="w-full p-2.5 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-neutral-700 mb-1">Chat ID</label>
-                    <select 
-                      value={tgChatId}
-                      onChange={e => setTgChatId(e.target.value)}
-                      className="w-full p-2.5 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white"
-                    >
-                      <option value="">Select a chat...</option>
-                      <option value="-5037930746">Test chat (-5037930746)</option>
-                      <option value="-1002692599988">Сильный Состав (-1002692599988)</option>
-                      {tgChatId && tgChatId !== "-5037930746" && tgChatId !== "-1002692599988" && (
-                        <option value={tgChatId}>Current: {tgChatId}</option>
-                      )}
-                    </select>
-                  </div>
-                </section>
-
-                <div className="flex gap-3 pt-2">
-                  <button
-                    onClick={handleSaveSettings}
-                    className="flex-1 py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-xl font-medium transition-colors"
-                  >
-                    Save & Close
-                  </button>
-                  <button
-                    onClick={handleFetchFromSportsHouse}
-                    disabled={!username || !password || isFetching}
-                    className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                    Fetch Now
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+      <SettingsModal
+        showSettings={showSettings}
+        setShowSettings={setShowSettings}
+        startDate={startDate}
+        setStartDate={setStartDate}
+        endDate={endDate}
+        setEndDate={setEndDate}
+        username={username}
+        setUsername={setUsername}
+        password={password}
+        setPassword={setPassword}
+        rememberMe={rememberMe}
+        setRememberMe={setRememberMe}
+        tgBotToken={tgBotToken}
+        setTgBotToken={setTgBotToken}
+        tgChatId={tgChatId}
+        setTgChatId={setTgChatId}
+        handleSaveSettings={handleSaveSettings}
+        handleFetchFromSportsHouse={handleFetchFromSportsHouse}
+        isFetching={isFetching}
+      />
 
         {pollSlot && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
