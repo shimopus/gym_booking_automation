@@ -1,0 +1,5 @@
+{
+  "name": "Court Availability Finder",
+  "description": "Find available volleyball court slots of 2 hours or more on weekdays from JSON data.",
+  "requestFramePermissions": []
+}
