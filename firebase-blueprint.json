@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "PollOption": {
+      "title": "PollOption",
+      "description": "An option in a poll",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "voter_count": { "type": "number" },
+        "price2h": { "type": "number" }
+      },
+      "required": ["text", "voter_count"]
+    },
+    "VoterInfo": {
+      "title": "VoterInfo",
+      "description": "Information about a voter",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "number" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "optionIds": { "type": "array", "items": { "type": "number" } },
+        "votedAt": { "type": "number" }
+      },
+      "required": ["userId", "name", "optionIds", "votedAt"]
+    },
+    "SentSummary": {
+      "title": "SentSummary",
+      "description": "Summary of a sent poll",
+      "type": "object",
+      "properties": {
+        "messageId": { "type": "number" },
+        "chatId": { "type": "string" },
+        "text": { "type": "string" },
+        "users": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "userId": { "type": "number" },
+              "name": { "type": "string" },
+              "username": { "type": "string" },
+              "total": { "type": "number" },
+              "paid": { "type": "boolean" }
+            },
+            "required": ["userId", "name", "total", "paid"]
+          }
+        },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["messageId", "chatId", "text", "users", "timestamp"]
+    },
+    "SentLineup": {
+      "title": "SentLineup",
+      "description": "Lineup sent to Telegram",
+      "type": "object",
+      "properties": {
+        "messageId": { "type": "number" },
+        "chatId": { "type": "string" },
+        "text": { "type": "string" },
+        "optionIndex": { "type": "number" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["messageId", "chatId", "text", "optionIndex", "timestamp"]
+    },
+    "ActivePoll": {
+      "title": "ActivePoll",
+      "description": "An active poll",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "messageId": { "type": "number" },
+        "question": { "type": "string" },
+        "options": { "type": "array", "items": { "$ref": "PollOption" } },
+        "totalVoterCount": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "voterAnswers": { "type": "object", "additionalProperties": { "$ref": "VoterInfo" } },
+        "sentSummaries": { "type": "array", "items": { "$ref": "SentSummary" } },
+        "sentLineups": { "type": "array", "items": { "$ref": "SentLineup" } }
+      },
+      "required": ["id", "messageId", "question", "options", "totalVoterCount", "createdAt"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "App settings",
+      "type": "object",
+      "properties": {
+        "lastUpdateId": { "type": "number" },
+        "tgBotToken": { "type": "string" },
+        "tgChatId": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "polls/{pollId}": {
+      "schema": { "$ref": "ActivePoll" },
+      "description": "Active polls"
+    },
+    "settings/{settingId}": {
+      "schema": { "$ref": "Settings" },
+      "description": "App settings (e.g., telegram)"
+    }
+  }
+}

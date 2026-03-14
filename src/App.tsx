@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { FileJson, AlertCircle, CalendarDays, Clock, MapPin, ChevronDown, ChevronUp, ArrowUpDown, Filter, CheckSquare, Square, X, Share2, Image as ImageIcon, Loader2, ExternalLink, Download, Send, Settings } from 'lucide-react';
+import { FileJson, AlertCircle, CalendarDays, Clock, MapPin, ChevronDown, ChevronUp, ArrowUpDown, Filter, CheckSquare, Square, X, Share2, Image as ImageIcon, Loader2, ExternalLink, Download, Send, Settings, LogIn, LogOut } from 'lucide-react';
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
 import * as htmlToImage from 'html-to-image';
+import { db, auth, signIn, logOut } from './firebase';
+import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 
 interface Slot {
   start: Date;
@@ -101,8 +104,9 @@ export default function App() {
     return d.toISOString().split('T')[0];
   });
   
-  const [tgBotToken, setTgBotToken] = useState(() => localStorage.getItem('tgBotToken') || '');
-  const [tgChatId, setTgChatId] = useState(() => localStorage.getItem('tgChatId') || '');
+  const [tgBotToken, setTgBotToken] = useState('');
+  const [tgChatId, setTgChatId] = useState('');
+  const originalTgBotTokenRef = useRef('');
   const [pollSlot, setPollSlot] = useState<MergedSlot | null>(null);
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState<Partial<PollOption>[]>([
@@ -113,11 +117,8 @@ export default function App() {
   const [isSendingPoll, setIsSendingPoll] = useState(false);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [isBulkPoll, setIsBulkPoll] = useState(false);
-  const [activePolls, setActivePolls] = useState<ActivePoll[]>(() => {
-    const saved = localStorage.getItem('activePolls');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [lastUpdateId, setLastUpdateId] = useState(() => Number(localStorage.getItem('lastUpdateId')) || 0);
+  const [activePolls, setActivePolls] = useState<ActivePoll[]>([]);
+  const [lastUpdateId, setLastUpdateId] = useState(0);
   const [activeTab, setActiveTab] = useState<'polls' | 'slots'>('polls');
   const [isRefreshingPolls, setIsRefreshingPolls] = useState(false);
   const [selectedPollForDetails, setSelectedPollForDetails] = useState<ActivePoll | null>(null);
@@ -127,9 +128,132 @@ export default function App() {
   const [isSavingLineup, setIsSavingLineup] = useState(false);
   const [ignoreVoteLimit, setIgnoreVoteLimit] = useState(false);
   const [showPollDetails, setShowPollDetails] = useState(true);
+  
+  const [user, setUser] = useState<any>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
   const filterRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setIsAuthReady(true);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthReady || !user) return;
+    
+    const unsubscribePolls = onSnapshot(collection(db, 'polls'), (snapshot) => {
+      const polls = snapshot.docs.map(doc => doc.data() as ActivePoll);
+      polls.sort((a, b) => b.createdAt - a.createdAt);
+      setActivePolls(polls);
+      
+      // Update selected poll if it exists
+      setSelectedPollForDetails(current => {
+        if (!current) return null;
+        return polls.find(p => p.id === current.id) || null;
+      });
+    });
+
+    const unsubscribeSettings = onSnapshot(doc(db, 'settings', 'telegram'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.tgBotToken) {
+          setTgBotToken(data.tgBotToken);
+          originalTgBotTokenRef.current = data.tgBotToken;
+        }
+        if (data.tgChatId) setTgChatId(data.tgChatId);
+        if (data.lastUpdateId !== undefined) setLastUpdateId(data.lastUpdateId);
+      }
+    });
+
+    return () => {
+      unsubscribePolls();
+      unsubscribeSettings();
+    };
+  }, [isAuthReady, user]);
+
+  const savePollToFirebase = async (poll: ActivePoll) => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'polls', poll.id), poll);
+    } catch (err) {
+      console.error('Failed to save poll to Firebase', err);
+    }
+  };
+
+  const deletePollFromFirebase = async (pollId: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'polls', pollId));
+    } catch (err) {
+      console.error('Failed to delete poll from Firebase', err);
+    }
+  };
+
+  const saveLastUpdateId = async (id: number) => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'settings', 'telegram'), { lastUpdateId: id }, { merge: true });
+    } catch (err) {
+      console.error('Failed to save lastUpdateId', err);
+    }
+  };
+
+  useEffect(() => {
+    const migrateData = async () => {
+      if (!user || !isAuthReady) return;
+      if (localStorage.getItem('hasMigratedToFirebase') === 'true') return;
+
+      console.log('Migrating local data to Firebase...');
+      let migratedSomething = false;
+
+      // Migrate Polls
+      const localPolls = localStorage.getItem('activePolls');
+      if (localPolls) {
+        try {
+          const parsedPolls = JSON.parse(localPolls);
+          if (Array.isArray(parsedPolls) && parsedPolls.length > 0) {
+            for (const poll of parsedPolls) {
+              await savePollToFirebase(poll);
+            }
+            migratedSomething = true;
+          }
+        } catch (err) {
+          console.error('Failed to parse local polls for migration', err);
+        }
+      }
+
+      // Migrate Telegram Settings
+      const localToken = localStorage.getItem('tgBotToken');
+      const localChatId = localStorage.getItem('tgChatId');
+      const localLastUpdateId = localStorage.getItem('lastUpdateId');
+      
+      if (localToken || localChatId || localLastUpdateId) {
+        try {
+          const settingsObj: any = {};
+          if (localToken) settingsObj.tgBotToken = localToken;
+          if (localChatId) settingsObj.tgChatId = localChatId;
+          if (localLastUpdateId) settingsObj.lastUpdateId = Number(localLastUpdateId);
+          
+          await setDoc(doc(db, 'settings', 'telegram'), settingsObj, { merge: true });
+          migratedSomething = true;
+        } catch (err) {
+          console.error('Failed to migrate settings', err);
+        }
+      }
+
+      localStorage.setItem('hasMigratedToFirebase', 'true');
+      if (migratedSomething) {
+        console.log('Migration complete!');
+      }
+    };
+
+    migrateData();
+  }, [user, isAuthReady]);
 
   useEffect(() => {
     if (selectedPollForDetails) {
@@ -505,14 +629,25 @@ export default function App() {
     }
   };
 
-  const handleSaveSettings = () => {
-    const oldToken = localStorage.getItem('tgBotToken');
+  const handleSaveSettings = async () => {
+    const oldToken = originalTgBotTokenRef.current;
     if (oldToken !== tgBotToken) {
       setLastUpdateId(0);
-      localStorage.setItem('lastUpdateId', '0');
+      await saveLastUpdateId(0);
     }
-    localStorage.setItem('tgBotToken', tgBotToken);
-    localStorage.setItem('tgChatId', tgChatId);
+    
+    if (user) {
+      try {
+        await setDoc(doc(db, 'settings', 'telegram'), {
+          tgBotToken,
+          tgChatId,
+          lastUpdateId: tgBotToken !== oldToken ? 0 : lastUpdateId
+        }, { merge: true });
+        originalTgBotTokenRef.current = tgBotToken;
+      } catch (err) {
+        console.error('Failed to save settings to Firebase', err);
+      }
+    }
     
     if (rememberMe) {
       localStorage.setItem('sportsHouseUsername', username);
@@ -645,7 +780,7 @@ export default function App() {
 
       const updatedPolls = [newPoll, ...activePolls].slice(0, 10); // Keep last 10
       setActivePolls(updatedPolls);
-      localStorage.setItem('activePolls', JSON.stringify(updatedPolls));
+      await savePollToFirebase(newPoll);
 
       setPollSlot(null);
       setSelectedRows(new Set());
@@ -673,7 +808,7 @@ export default function App() {
       if (updates.length > 0) {
         const maxUpdateId = Math.max(...updates.map((u: any) => u.update_id));
         setLastUpdateId(maxUpdateId);
-        localStorage.setItem('lastUpdateId', String(maxUpdateId));
+        await saveLastUpdateId(maxUpdateId);
       }
 
       const pollUpdates = updates
@@ -724,7 +859,13 @@ export default function App() {
           return updatedPoll;
         });
 
-        localStorage.setItem('activePolls', JSON.stringify(nextPolls));
+        // Save modified polls to Firebase
+        nextPolls.forEach(p => {
+          const prev = prevPolls.find(old => old.id === p.id);
+          if (JSON.stringify(prev) !== JSON.stringify(p)) {
+            savePollToFirebase(p);
+          }
+        });
         
         // Update selected poll if it's in the list
         if (selectedPollForDetails) {
@@ -809,7 +950,8 @@ export default function App() {
     });
 
     setActivePolls(nextPolls);
-    localStorage.setItem('activePolls', JSON.stringify(nextPolls));
+    const updatedPoll = nextPolls.find(p => p.id === pollId);
+    if (updatedPoll) savePollToFirebase(updatedPoll);
     
     if (selectedPollForDetails && selectedPollForDetails.id === pollId) {
       setSelectedPollForDetails(nextPolls.find(p => p.id === pollId) || null);
@@ -837,7 +979,7 @@ export default function App() {
   const removePoll = (id: string) => {
     const next = activePolls.filter(p => p.id !== id);
     setActivePolls(next);
-    localStorage.setItem('activePolls', JSON.stringify(next));
+    deletePollFromFirebase(id);
   };
 
   const prepareLineups = (poll: ActivePoll) => {
@@ -953,9 +1095,9 @@ export default function App() {
       });
       
       setActivePolls(nextPolls);
-      localStorage.setItem('activePolls', JSON.stringify(nextPolls));
-      
       const updatedPoll = nextPolls.find(p => p.id === pollId);
+      if (updatedPoll) savePollToFirebase(updatedPoll);
+      
       if (updatedPoll) {
         setSelectedPollForDetails(updatedPoll);
       }
@@ -1019,15 +1161,16 @@ export default function App() {
       setActivePolls(prev => {
         const next = prev.map(p => {
           if (p.id === pollId) {
-            return {
+            const updated = {
               ...p,
               sentSummaries: [...(p.sentSummaries || []), ...newSummaries],
               sentLineups: [...(p.sentLineups || []), ...newLineups]
             };
+            savePollToFirebase(updated);
+            return updated;
           }
           return p;
         });
-        localStorage.setItem('activePolls', JSON.stringify(next));
         return next;
       });
 
@@ -1132,19 +1275,43 @@ export default function App() {
   return (
     <div className="min-h-screen bg-neutral-50 p-4 md:p-8 font-sans text-neutral-900">
       <div className="max-w-6xl mx-auto space-y-8">
-        <header>
-          <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">Court Availability Finder</h1>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-2">
-            <p className="text-neutral-500">Find weekday slots of 2 hours or more at SportsHouse.</p>
-            <a 
-              href="https://apps.daysmartrecreation.com/dash/x/#/online/sportshouse/login?noAutoLogin=1" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
-            >
-              Book on SportsHouse
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
+        <header className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">Court Availability Finder</h1>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-2">
+              <p className="text-neutral-500">Find weekday slots of 2 hours or more at SportsHouse.</p>
+              <a 
+                href="https://apps.daysmartrecreation.com/dash/x/#/online/sportshouse/login?noAutoLogin=1" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
+              >
+                Book on SportsHouse
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+          <div>
+            {user ? (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-neutral-600 font-medium">{user.email}</span>
+                <button 
+                  onClick={logOut}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-neutral-700 bg-white border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign Out
+                </button>
+              </div>
+            ) : (
+              <button 
+                onClick={signIn}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+              >
+                <LogIn className="w-4 h-4" />
+                Sign In to Sync
+              </button>
+            )}
           </div>
         </header>
 
