@@ -1964,7 +1964,8 @@ export default function App() {
                     </p>
                     {selectedPollForDetails.options.map((opt, idx) => {
                       const voters = (Object.values(selectedPollForDetails.voterAnswers || {}) as VoterInfo[])
-                        .filter(v => v.optionIds.includes(idx));
+                        .filter(v => v.optionIds.includes(idx))
+                        .sort((a, b) => a.votedAt - b.votedAt);
                       
                       return (
                         <div key={idx} className="space-y-3">
@@ -1984,13 +1985,18 @@ export default function App() {
 
                           {voters.length > 0 ? (
                             <div className="flex flex-wrap gap-1.5">
-                              {voters.map(v => (
+                              {voters.map((v, i) => (
                                 <div 
                                   key={v.userId} 
-                                  className="text-[10px] bg-neutral-50 border border-neutral-200 px-2 py-1 rounded-lg text-neutral-700 flex items-center gap-1"
+                                  className={`text-[10px] border px-2 py-1 rounded-lg flex items-center gap-1 ${
+                                    i < 12 
+                                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
+                                      : 'bg-neutral-50 border-neutral-200 text-neutral-500 opacity-75'
+                                  }`}
                                 >
+                                  <span className="font-bold opacity-50">{i + 1}.</span>
                                   <span className="font-medium">{v.name}</span>
-                                  {v.username && <span className="text-neutral-400">@{v.username}</span>}
+                                  {v.username && <span className="opacity-70">@{v.username}</span>}
                                 </div>
                               ))}
                             </div>
