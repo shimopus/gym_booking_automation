@@ -1292,7 +1292,7 @@ export default function App() {
               </a>
             </div>
           </div>
-          <div>
+          <div className="flex items-center gap-3">
             {user ? (
               <div className="flex items-center gap-3">
                 <span className="text-sm text-neutral-600 font-medium">{user.email}</span>
@@ -1320,6 +1320,13 @@ export default function App() {
                 Sign In to Sync
               </button>
             )}
+            <button
+              onClick={() => setShowSettings(true)}
+              className="p-2 rounded-xl border bg-white border-neutral-200 text-neutral-700 hover:bg-neutral-50 transition-colors shadow-sm"
+              title="Settings"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
           </div>
         </header>
 
@@ -1476,13 +1483,6 @@ export default function App() {
                     >
                       {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                       <span>{isFetching ? 'Fetching...' : 'Fetch Latest Availability'}</span>
-                    </button>
-                    <button
-                      onClick={() => setShowSettings(true)}
-                      className="p-2.5 rounded-xl border bg-white border-neutral-200 text-neutral-700 hover:bg-neutral-50 transition-colors shadow-sm"
-                      title="Settings"
-                    >
-                      <Settings className="w-5 h-5" />
                     </button>
                   </div>
                   
