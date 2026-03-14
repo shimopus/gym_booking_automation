@@ -95,6 +95,12 @@ export default function App() {
   const tableRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (activeTab === 'polls') {
+      refreshPolls();
+    }
+  }, [activeTab, refreshPolls]);
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setIsAuthReady(true);

@@ -177,6 +177,28 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     }
   }, [tgBotToken, activePolls.length, lastUpdateId]);
 
+  // Auto-refresh logic
+  useEffect(() => {
+    if (!tgBotToken || activePolls.length === 0) return;
+
+    const interval = setInterval(() => {
+      refreshPolls();
+    }, 30000); // 30 seconds
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshPolls();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshPolls, tgBotToken, activePolls.length]);
+
   const togglePaidStatus = async (pollId: string, summaryIndex: number, userIndex: number) => {
     if (!tgBotToken) return;
     
