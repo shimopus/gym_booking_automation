@@ -839,7 +839,8 @@ export default function App() {
           const answersForThisPoll = pollAnswerUpdates.filter((au: any) => au.poll_id === p.id);
           if (answersForThisPoll.length > 0) {
             const currentVoterAnswers = { ...(updatedPoll.voterAnswers || {}) };
-            answersForThisPoll.forEach((au: any) => {
+            const batchTime = Date.now();
+            answersForThisPoll.forEach((au: any, index: number) => {
               if (au.option_ids.length === 0) {
                 delete currentVoterAnswers[au.user.id];
               } else {
@@ -849,7 +850,7 @@ export default function App() {
                   name: [au.user.first_name, au.user.last_name].filter(Boolean).join(' '),
                   username: au.user.username,
                   optionIds: au.option_ids,
-                  votedAt: existing?.votedAt || Date.now()
+                  votedAt: au.date ? au.date * 1000 : batchTime + index
                 };
               }
             });
@@ -1305,7 +1306,14 @@ export default function App() {
               </div>
             ) : (
               <button 
-                onClick={signIn}
+                onClick={async () => {
+                  try {
+                    await signIn();
+                  } catch (error: any) {
+                    console.error('Sign in error:', error);
+                    alert(`Sign in failed: ${error.message}\n\nIf you are running this locally, make sure your local URL (e.g., localhost or 127.0.0.1) is added to the Authorized Domains in the Firebase Console (Authentication -> Settings -> Authorized domains).`);
+                  }
+                }}
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
               >
                 <LogIn className="w-4 h-4" />
