@@ -557,7 +557,7 @@ export default function App() {
     const { start, end } = getBest2hWindow(slot.start, slot.end);
     setPollSlot(slot);
     setIsBulkPoll(false);
-    setPollQuestion("Кто готов закоммититься на зал - голосуем 🏐?");
+    setPollQuestion("Кто готов закоммититься на зал - голосуем! 🏐");
     setPollOptions([{
       text: formatPollOption(start, end, slot.resourceName),
       price2h: slot.price2h
@@ -590,7 +590,7 @@ export default function App() {
 
     setIsBulkPoll(true);
     setPollSlot(selectedSlots[0]);
-    setPollQuestion("Кто готов закоммититься на зал - голосуем 🏐?");
+    setPollQuestion("Кто готов закоммититься на зал - голосуем! 🏐");
     
     const options = selectedSlots.map(slot => {
       const { start, end } = getBest2hWindow(slot.start, slot.end);
