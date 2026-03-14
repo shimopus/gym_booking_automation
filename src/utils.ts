@@ -8,15 +8,15 @@ export const getWeekId = (d: Date) => {
 };
 
 export const formatTime = (date: Date) => {
-  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
 };
 
 export const formatWeekday = (date: Date) => {
-  return date.toLocaleDateString([], { weekday: 'short' });
+  return date.toLocaleDateString([], { weekday: 'long' });
 };
 
 export const formatDate = (date: Date) => {
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
 export const formatPollOption = (start: Date, end: Date, courtName: string) => {
@@ -54,4 +54,11 @@ export const getBest2hWindow = (start: Date, end: Date) => {
   const bestEnd = new Date(bestStartMs + twoHoursMs);
 
   return { start: bestStart, end: bestEnd };
+};
+
+export const calculateDuration = (start: Date, end: Date) => {
+  const diffMs = end.getTime() - start.getTime();
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  return `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`;
 };
