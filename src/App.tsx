@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { FileJson, AlertCircle, CalendarDays, Clock, MapPin, ChevronDown, ChevronUp, ArrowUpDown, Filter, CheckSquare, Square, X, Share2, Image as ImageIcon, Loader2, ExternalLink, Download, Send, Settings, LogIn, LogOut } from 'lucide-react';
-import { decompressFromEncodedURIComponent } from 'lz-string';
+import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
 import * as htmlToImage from 'html-to-image';
 import { db, auth, signIn, logOut } from './firebase';
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
