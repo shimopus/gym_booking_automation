@@ -478,7 +478,20 @@ export function useTelegram(user: any, isAuthReady: boolean) {
 
     for (let i = 0; i < poll.options.length; i++) {
       const option = poll.options[i];
-      const optionVoters = allVoters.filter(v => v.optionIds.includes(i));
+      let optionVoters = allVoters.filter(v => v.optionIds.includes(i));
+
+      // Respect manual reordering if it exists
+      const order = poll.optionVoterOrder?.[i];
+      if (order) {
+        optionVoters.sort((a, b) => {
+          const aIdx = order.indexOf(a.userId);
+          const bIdx = order.indexOf(b.userId);
+          if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+          if (aIdx !== -1) return -1;
+          if (bIdx !== -1) return 1;
+          return a.votedAt - b.votedAt;
+        });
+      }
 
       if (optionVoters.length >= 12 || (ignoreVoteLimit && optionVoters.length > 0)) {
         let message = `<b>${option.text}</b>\n\n`;
