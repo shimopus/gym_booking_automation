@@ -1,5 +1,5 @@
 import { db, auth } from '../firebase';
-import { collection, doc, setDoc, deleteDoc, addDoc } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, addDoc, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { ActivePoll } from '../types';
 
 export const savePollToFirebase = async (poll: ActivePoll) => {
@@ -52,9 +52,22 @@ export const saveRawUpdatesToFirebase = async (updates: any[]) => {
 export const deletePollFromFirebase = async (pollId: string) => {
   if (!auth.currentUser) return;
   try {
+    // Delete the poll document
     await deleteDoc(doc(db, 'polls', pollId));
+
+    // Cleanup rawUpdates for this poll
+    const q = query(collection(db, 'rawUpdates'), where('pollId', '==', pollId));
+    const snapshot = await getDocs(q);
+    
+    if (!snapshot.empty) {
+      const batch = writeBatch(db);
+      snapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+    }
   } catch (err) {
-    console.error('Failed to delete poll from Firebase', err);
+    console.error('Failed to delete poll and its updates from Firebase', err);
   }
 };
 
