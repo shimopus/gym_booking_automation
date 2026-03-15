@@ -48,7 +48,9 @@ export interface ActivePoll {
   options: PollOption[];
   totalVoterCount: number;
   createdAt: number;
+  isStopped?: boolean;
   voterAnswers?: { [userId: number]: VoterInfo };
+  optionVoterOrder?: { [optionId: number]: number[] };
   sentSummaries?: SentSummary[];
   sentLineups?: SentLineup[];
 }

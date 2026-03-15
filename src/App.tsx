@@ -57,7 +57,12 @@ export default function App() {
     removePoll,
     handleSaveEditedLineup,
     handleSendFinalLineups,
-    prepareLineups
+    prepareLineups,
+    reSyncPoll,
+    updateVoterAnswer,
+    addVoterAnswer,
+    stopPoll,
+    updateVoterOrder
   } = useTelegram(user, isAuthReady);
 
   const {
@@ -464,6 +469,11 @@ export default function App() {
           isSendingLineup={isSendingLineup}
           ignoreVoteLimit={ignoreVoteLimit}
           setIgnoreVoteLimit={setIgnoreVoteLimit}
+          reSyncPoll={reSyncPoll}
+          updateVoterAnswer={updateVoterAnswer}
+          addVoterAnswer={addVoterAnswer}
+          stopPoll={stopPoll}
+          updateVoterOrder={updateVoterOrder}
         />
 
         <LineupPreviewModal 

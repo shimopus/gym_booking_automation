@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { collection, doc, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { ActivePoll, PollOption, VoterInfo, SentSummary, SentLineup } from '../types';
-import { savePollToFirebase, deletePollFromFirebase, saveLastUpdateId } from '../services/firebaseService';
+import { savePollToFirebase, deletePollFromFirebase, saveLastUpdateId, saveRawUpdatesToFirebase } from '../services/firebaseService';
 
 export function useTelegram(user: any, isAuthReady: boolean) {
   const [tgBotToken, setTgBotToken] = useState('');
@@ -99,83 +99,128 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     
     setIsRefreshingPolls(true);
     try {
-      const offset = lastUpdateId ? lastUpdateId + 1 : 0;
-      const response = await fetch(`https://api.telegram.org/bot${tgBotToken}/getUpdates?offset=${offset}&limit=100&allowed_updates=["poll","poll_answer"]`);
-      if (!response.ok) throw new Error('Failed to fetch updates');
+      let offset = lastUpdateId ? lastUpdateId + 1 : 0;
+      let allUpdates: any[] = [];
+      let hasMore = true;
+
+      while (hasMore) {
+        const response = await fetch(`https://api.telegram.org/bot${tgBotToken}/getUpdates?offset=${offset}&limit=100&allowed_updates=["poll","poll_answer"]`);
+        if (!response.ok) throw new Error('Failed to fetch updates');
+        
+        const data = await response.json();
+        console.log('Raw Telegram updates:', data);
+        const updates = data.result || [];
+        
+        if (updates.length > 0) {
+          allUpdates.push(...updates);
+          offset = Math.max(...updates.map((u: any) => u.update_id)) + 1;
+        } else {
+          hasMore = false;
+        }
+        
+        if (updates.length < 100) {
+          hasMore = false;
+        }
+      }
       
-      const data = await response.json();
-      const updates = data.result || [];
-      
-      if (updates.length > 0) {
-        const maxUpdateId = Math.max(...updates.map((u: any) => u.update_id));
+      if (allUpdates.length > 0) {
+        await saveRawUpdatesToFirebase(allUpdates);
+        const maxUpdateId = Math.max(...allUpdates.map((u: any) => u.update_id));
         setLastUpdateId(maxUpdateId);
         await saveLastUpdateId(maxUpdateId);
       }
 
-      const pollUpdates = updates
+      const pollUpdates = allUpdates
         .filter((u: any) => u.poll)
         .map((u: any) => u.poll);
 
-      const pollAnswerUpdates = updates
+      const pollAnswerUpdates = allUpdates
         .filter((u: any) => u.poll_answer)
         .map((u: any) => u.poll_answer);
         
-      setActivePolls(prevPolls => {
-        const nextPolls = prevPolls.map(p => {
-          let updatedPoll = { ...p };
-          
-          const pollUpdate = pollUpdates.find((up: any) => up.id === p.id);
-          if (pollUpdate) {
-            updatedPoll.options = pollUpdate.options.map((o: any) => {
+      // Calculate next polls based on current activePolls and new polls from updates
+      const nextPolls = [...activePolls];
+      
+      // Process poll updates to update existing polls or add new ones
+      pollUpdates.forEach((pollUpdate: any) => {
+        const existingPollIndex = nextPolls.findIndex(p => p.id === pollUpdate.id);
+        if (existingPollIndex !== -1) {
+          // Update existing poll
+          const p = nextPolls[existingPollIndex];
+          nextPolls[existingPollIndex] = {
+            ...p,
+            options: pollUpdate.options.map((o: any) => {
               const existingOption = p.options.find((eo: any) => eo.text === o.text);
               return { 
                 text: o.text, 
                 voter_count: o.voter_count,
                 price2h: existingOption?.price2h
               };
-            });
-            updatedPoll.totalVoterCount = pollUpdate.total_voter_count;
-          }
-
-          const answersForThisPoll = pollAnswerUpdates.filter((au: any) => au.poll_id === p.id);
-          if (answersForThisPoll.length > 0) {
-            const currentVoterAnswers = { ...(updatedPoll.voterAnswers || {}) };
-            const batchTime = Date.now();
-            answersForThisPoll.forEach((au: any, index: number) => {
-              if (au.option_ids.length === 0) {
-                delete currentVoterAnswers[au.user.id];
-              } else {
-                currentVoterAnswers[au.user.id] = {
-                  userId: au.user.id,
-                  name: [au.user.first_name, au.user.last_name].filter(Boolean).join(' '),
-                  username: au.user.username,
-                  optionIds: au.option_ids,
-                  votedAt: au.date ? au.date * 1000 : batchTime + index
-                };
-              }
-            });
-            updatedPoll.voterAnswers = currentVoterAnswers;
-          }
-
-          return updatedPoll;
-        });
-
-        // Save modified polls to Firebase
-        nextPolls.forEach(p => {
-          const prev = prevPolls.find(old => old.id === p.id);
-          if (JSON.stringify(prev) !== JSON.stringify(p)) {
-            savePollToFirebase(p);
-          }
-        });
-        
-        return nextPolls;
+            }),
+            totalVoterCount: pollUpdate.total_voter_count
+          };
+        } else {
+          // Add new poll
+          nextPolls.push({
+            id: pollUpdate.id,
+            messageId: 0, // We don't have the messageId here
+            question: pollUpdate.question,
+            options: pollUpdate.options.map((o: any) => ({ text: o.text, voter_count: o.voter_count })),
+            totalVoterCount: pollUpdate.total_voter_count,
+            createdAt: Date.now(),
+            voterAnswers: {}
+          });
+        }
       });
-    } catch (err) {
+
+      // Process poll answer updates
+      pollAnswerUpdates.forEach((au: any) => {
+        const pollIndex = nextPolls.findIndex(p => p.id === au.poll_id);
+        if (pollIndex !== -1) {
+          const updatedPoll = { ...nextPolls[pollIndex] };
+          const currentVoterAnswers = { ...(updatedPoll.voterAnswers || {}) };
+          
+          if (au.option_ids.length === 0) {
+            delete currentVoterAnswers[au.user.id];
+          } else {
+            currentVoterAnswers[au.user.id] = {
+              userId: au.user.id,
+              name: [au.user.first_name, au.user.last_name].filter(Boolean).join(' '),
+              username: au.user.username || null,
+              optionIds: au.option_ids,
+              votedAt: au.date ? au.date * 1000 : Date.now()
+            };
+          }
+          updatedPoll.voterAnswers = currentVoterAnswers;
+          nextPolls[pollIndex] = updatedPoll;
+        } else {
+          console.warn(`Received poll_answer for unknown poll: ${au.poll_id}`);
+        }
+      });
+
+      // Save modified polls to Firebase
+      // onSnapshot will handle updating local state
+      for (const p of nextPolls) {
+        const prev = activePolls.find(old => old.id === p.id);
+        if (JSON.stringify(prev) !== JSON.stringify(p)) {
+          await savePollToFirebase(p);
+        }
+      }
+    } catch (err: any) {
       console.error('Failed to refresh polls', err);
+      if (err instanceof Error) {
+        console.error('Error message:', err.message);
+      }
     } finally {
       setIsRefreshingPolls(false);
     }
-  }, [tgBotToken, activePolls.length, lastUpdateId]);
+  }, [tgBotToken, activePolls, lastUpdateId]);
+
+  const reSyncPoll = useCallback(async (pollId: string) => {
+    setLastUpdateId(0);
+    await saveLastUpdateId(0);
+    await refreshPolls();
+  }, [refreshPolls]);
 
   // Auto-refresh logic
   useEffect(() => {
@@ -401,6 +446,11 @@ export function useTelegram(user: any, isAuthReady: boolean) {
 
       if (optionVoters.length >= 12 || (ignoreVoteLimit && optionVoters.length > 0)) {
         let message = `<b>${option.text}</b>\n\n`;
+        
+        const pricePerVote = option.price2h !== undefined 
+          ? Math.ceil((option.price2h / optionVoters.length) / 0.5) * 0.5 
+          : 0;
+
         optionVoters.forEach((v, idx) => {
           const mention = v.username 
             ? `@${v.username.replace(/_/g, '\\_')}` 
@@ -412,7 +462,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
             userCosts[v.userId] = { name: v.name, username: v.username, total: 0 };
           }
           if (option.price2h !== undefined) {
-            userCosts[v.userId].total += option.price2h / optionVoters.length;
+            userCosts[v.userId].total += pricePerVote;
           } else {
             hasMissingPrices = true;
           }
@@ -428,7 +478,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         .sort((a, b) => a.name.localeCompare(b.name));
 
       const usersForSummary = sortedUsers.map(u => {
-        const roundedTotal = Math.ceil(u.total * 2) / 2;
+        const roundedTotal = u.total; // Already rounded per vote
         const mention = u.username 
           ? `@${u.username.replace(/_/g, '\\_')}` 
           : `<a href="tg://user?id=${u.userId}">${u.name}</a>`;
@@ -462,6 +512,82 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     setLineupPreviews(previews);
   };
 
+  const updateVoterAnswer = async (pollId: string, userId: number, newOptionIds: number[], newOptionVoterOrder?: { [optionId: number]: number[] }) => {
+    const poll = activePolls.find(p => p.id === pollId);
+    if (!poll) return;
+
+    const updatedPoll = { ...poll };
+    const currentVoterAnswers = { ...(updatedPoll.voterAnswers || {}) };
+    
+    if (currentVoterAnswers[userId]) {
+      currentVoterAnswers[userId] = {
+        ...currentVoterAnswers[userId],
+        optionIds: newOptionIds
+      };
+    }
+    
+    updatedPoll.voterAnswers = currentVoterAnswers;
+    if (newOptionVoterOrder) {
+      updatedPoll.optionVoterOrder = newOptionVoterOrder;
+    }
+    await savePollToFirebase(updatedPoll);
+  };
+
+  const addVoterAnswer = async (pollId: string, voter: VoterInfo) => {
+    const poll = activePolls.find(p => p.id === pollId);
+    if (!poll) return;
+
+    const updatedPoll = { ...poll };
+    const currentVoterAnswers = { ...(updatedPoll.voterAnswers || {}) };
+    
+    currentVoterAnswers[voter.userId] = voter;
+    
+    updatedPoll.voterAnswers = currentVoterAnswers;
+    await savePollToFirebase(updatedPoll);
+  };
+
+  const stopPoll = async (pollId: string) => {
+    const poll = activePolls.find(p => p.id === pollId);
+    if (!poll) return;
+
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${tgBotToken}/stopPoll`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_id: tgChatId,
+          message_id: poll.messageId
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.description || 'Failed to stop poll on Telegram');
+      }
+    } catch (err: any) {
+      console.error('Telegram API Error:', err);
+      alert(`Failed to stop poll on Telegram: ${err.message}`);
+      return;
+    }
+
+    const updatedPoll = { ...poll, isStopped: true };
+    await savePollToFirebase(updatedPoll);
+  };
+
+  const updateVoterOrder = async (pollId: string, optionId: number, newVoterIds: number[]) => {
+    const poll = activePolls.find(p => p.id === pollId);
+    if (!poll) return;
+
+    const updatedPoll = { ...poll };
+    updatedPoll.optionVoterOrder = {
+      ...(updatedPoll.optionVoterOrder || {}),
+      [optionId]: newVoterIds
+    };
+    await savePollToFirebase(updatedPoll);
+  };
+
   return {
     tgBotToken,
     setTgBotToken,
@@ -480,6 +606,11 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     removePoll,
     handleSaveEditedLineup,
     handleSendFinalLineups,
-    prepareLineups
+    prepareLineups,
+    reSyncPoll,
+    updateVoterAnswer,
+    addVoterAnswer,
+    stopPoll,
+    updateVoterOrder
   };
 }

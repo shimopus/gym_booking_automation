@@ -16,6 +16,10 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    match /rawUpdates/{updateId} {
+      allow read, write: if isAdmin();
+    }
+
     match /settings/{settingId} {
       allow read, write: if isAdmin();
     }
