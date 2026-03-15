@@ -1,8 +1,26 @@
 import React from 'react';
 import { X, Send, CheckSquare, Square, Loader2, GripVertical } from 'lucide-react';
 import { ActivePoll, VoterInfo } from '../types';
-import { DndContext, closestCenter, DragEndEvent } from '@dnd-kit/core';
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { 
+  DndContext, 
+  rectIntersection, 
+  DragEndEvent, 
+  DragOverEvent, 
+  DragStartEvent, 
+  PointerSensor, 
+  useSensor, 
+  useSensors,
+  DragOverlay,
+  defaultDropAnimationSideEffects,
+  useDroppable
+} from '@dnd-kit/core';
+import { 
+  arrayMove, 
+  SortableContext, 
+  useSortable, 
+  verticalListSortingStrategy,
+  horizontalListSortingStrategy
+} from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
 const SortableVoter: React.FC<{ voter: VoterInfo; index: number; id: number }> = ({ voter, index, id }) => {
@@ -25,6 +43,36 @@ const SortableVoter: React.FC<{ voter: VoterInfo; index: number; id: number }> =
       <span className="font-bold opacity-50">{index + 1}.</span>
       <span className="font-medium">{voter.name}</span>
       {voter.username && <span className="opacity-70">@{voter.username}</span>}
+    </div>
+  );
+};
+
+const ManageSortableVoter: React.FC<{ id: string; name: string }> = ({ id, name }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div 
+      ref={setNodeRef} 
+      style={style} 
+      {...attributes} 
+      {...listeners}
+      className="p-2 bg-white border rounded-lg cursor-grab text-xs font-medium shadow-sm hover:border-indigo-300 transition-colors"
+    >
+      {name}
+    </div>
+  );
+};
+
+const ManageDroppableContainer: React.FC<{ id: string; children: React.ReactNode; className?: string }> = ({ id, children, className }) => {
+  const { setNodeRef } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} className={className}>
+      {children}
     </div>
   );
 };
@@ -69,6 +117,148 @@ export function PollDetailsModal({
   updateVoterOrder
 }: PollDetailsModalProps) {
   const [showManageVotes, setShowManageVotes] = React.useState(false);
+  const [manageItems, setManageItems] = React.useState<{ [key: string]: string[] }>({});
+  const [activeManageId, setActiveManageId] = React.useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    })
+  );
+
+  React.useEffect(() => {
+    if (showManageVotes && selectedPollForDetails) {
+      const initialItems: { [key: string]: string[] } = {
+        'all-voters': Object.values(selectedPollForDetails.voterAnswers || {}).map(v => `all-voters:${v.userId}`)
+      };
+      
+      selectedPollForDetails.options.forEach((_, idx) => {
+        const voters = Object.values(selectedPollForDetails.voterAnswers || {}).filter(v => v.optionIds.includes(idx));
+        const order = selectedPollForDetails.optionVoterOrder?.[idx] || [];
+        const sortedVoters = voters.sort((a, b) => {
+          const aIdx = order.indexOf(a.userId);
+          const bIdx = order.indexOf(b.userId);
+          if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+          if (aIdx !== -1) return -1;
+          if (bIdx !== -1) return 1;
+          return a.votedAt - b.votedAt;
+        });
+        initialItems[`option-${idx}`] = sortedVoters.map(v => `option:${idx}:${v.userId}`);
+      });
+      
+      setManageItems(initialItems);
+    }
+  }, [showManageVotes, selectedPollForDetails]);
+
+  const findContainer = (id: string) => {
+    if (id in manageItems) return id;
+    return Object.keys(manageItems).find(key => manageItems[key].includes(id));
+  };
+
+  const handleManageDragStart = (event: DragStartEvent) => {
+    setActiveManageId(event.active.id as string);
+  };
+
+  const handleManageDragOver = (event: DragOverEvent) => {
+    const { active, over } = event;
+    const activeId = active.id as string;
+    const overId = over?.id as string;
+
+    if (!overId || activeId === overId) return;
+
+    const activeContainer = findContainer(activeId);
+    const overContainer = findContainer(overId);
+
+    if (!activeContainer || !overContainer) return;
+
+    if (activeContainer !== overContainer) {
+      setManageItems(prev => {
+        const activeItems = prev[activeContainer];
+        const overItems = prev[overContainer];
+        const activeIndex = activeItems.indexOf(activeId);
+        const overIndex = overItems.indexOf(overId);
+
+        let newIndex;
+        if (overId in prev) {
+          newIndex = overItems.length;
+        } else {
+          const isBelowOverItem =
+            over &&
+            active.rect.current.translated &&
+            active.rect.current.translated.top >
+              over.rect.top + over.rect.height;
+
+          const modifier = isBelowOverItem ? 1 : 0;
+          newIndex = overIndex >= 0 ? overIndex + modifier : overItems.length;
+        }
+
+        return {
+          ...prev,
+          [activeContainer]: activeItems.filter(item => item !== activeId),
+          [overContainer]: [
+            ...overItems.slice(0, newIndex),
+            activeId,
+            ...overItems.slice(newIndex)
+          ]
+        };
+      });
+    } else {
+      // Reorder within same container
+      const activeIndex = manageItems[activeContainer].indexOf(activeId);
+      const overIndex = manageItems[overContainer].indexOf(overId);
+
+      if (activeIndex !== overIndex) {
+        setManageItems(prev => ({
+          ...prev,
+          [activeContainer]: arrayMove(prev[activeContainer], activeIndex, overIndex)
+        }));
+      }
+    }
+  };
+
+  const handleManageDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    const activeId = active.id as string;
+
+    if (!over) {
+      setActiveManageId(null);
+      return;
+    }
+
+    const activeContainer = findContainer(activeId);
+    const overId = over.id as string;
+    const overContainer = findContainer(overId);
+
+    if (activeContainer && overContainer) {
+      // Final state is already updated by handleManageDragOver
+      if (selectedPollForDetails) {
+        const userId = parseInt(activeId.split(':').pop()!);
+        const voter = selectedPollForDetails.voterAnswers?.[userId];
+        
+        if (voter) {
+          const newOptionIds: number[] = [];
+          const newOptionVoterOrder: { [key: number]: number[] } = { ...selectedPollForDetails.optionVoterOrder };
+          
+          selectedPollForDetails.options.forEach((_, idx) => {
+            const containerKey = `option-${idx}`;
+            const containerItems = manageItems[containerKey] || [];
+            const userIdsInOption = containerItems.map(item => parseInt(item.split(':').pop()!));
+            
+            if (userIdsInOption.includes(userId)) {
+              newOptionIds.push(idx);
+            }
+            newOptionVoterOrder[idx] = userIdsInOption;
+          });
+          
+          await updateVoterAnswer(selectedPollForDetails.id, userId, newOptionIds, newOptionVoterOrder);
+        }
+      }
+    }
+
+    setActiveManageId(null);
+  };
 
   const handleDragEnd = (event: DragEndEvent, optionId: number) => {
     const { active, over } = event;
@@ -99,121 +289,69 @@ export function PollDetailsModal({
           <div className="absolute inset-0 bg-white z-[70] p-6 overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h3 className="font-bold text-lg">Manage Votes</h3>
-              <button onClick={() => setShowManageVotes(false)} className="text-neutral-500">Close</button>
+              <button onClick={() => setShowManageVotes(false)} className="text-neutral-500 font-bold">Close</button>
             </div>
             
-            <div className="flex gap-6">
-              {/* All Voters List */}
-              <div className="w-1/3 p-4 border rounded-xl bg-neutral-100">
-                <h4 className="font-bold mb-2 text-sm">All Voters</h4>
-                <div 
-                  className="space-y-2 min-h-[100px]"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={async (e) => {
-                    const voterId = parseInt(e.dataTransfer.getData('voterId'));
-                    const optionIdx = parseInt(e.dataTransfer.getData('optionIdx'));
-                    const voter = selectedPollForDetails.voterAnswers?.[voterId];
-                    if (voter && optionIdx !== -1) {
-                      // Remove vote
-                      const newOptionIds = voter.optionIds.filter(id => id !== optionIdx);
-                      let newOptionVoterOrder = { ...(selectedPollForDetails.optionVoterOrder || {}) };
-                      if (newOptionVoterOrder[optionIdx]) {
-                        newOptionVoterOrder[optionIdx] = newOptionVoterOrder[optionIdx].filter(id => id !== voterId);
-                      }
-                      await updateVoterAnswer(selectedPollForDetails.id, voterId, newOptionIds, newOptionVoterOrder);
-                    }
-                  }}
-                >
-                  {Object.values(selectedPollForDetails.voterAnswers || {}).map(voter => (
-                    <div 
-                      key={voter.userId} 
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('voterId', voter.userId.toString());
-                        e.dataTransfer.setData('optionIdx', '-1');
-                      }}
-                      className="p-2 bg-white border rounded-lg cursor-grab text-xs font-medium"
-                    >
-                      {voter.name}
+            <DndContext 
+              sensors={sensors}
+              collisionDetection={rectIntersection}
+              onDragStart={handleManageDragStart}
+              onDragOver={handleManageDragOver}
+              onDragEnd={handleManageDragEnd}
+            >
+              <div className="flex gap-6">
+                {/* All Voters List */}
+                <div className="w-1/3 p-4 border rounded-xl bg-neutral-100">
+                  <h4 className="font-bold mb-2 text-sm">All Voters</h4>
+                  <SortableContext 
+                    id="all-voters"
+                    items={manageItems['all-voters'] || []}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <ManageDroppableContainer id="all-voters" className="space-y-2 min-h-[100px]">
+                      {(manageItems['all-voters'] || []).map(id => {
+                        const userId = parseInt(id.split(':').pop()!);
+                        const voter = selectedPollForDetails.voterAnswers?.[userId];
+                        return <ManageSortableVoter key={id} id={id} name={voter?.name || 'Unknown'} />;
+                      })}
+                    </ManageDroppableContainer>
+                  </SortableContext>
+                </div>
+
+                {/* Options */}
+                <div className="w-2/3 space-y-4">
+                  {selectedPollForDetails.options.map((opt, optIdx) => (
+                    <div key={optIdx} className="p-4 border rounded-xl bg-neutral-50">
+                      <h4 className="font-bold mb-2 text-sm">{opt.text}</h4>
+                      <SortableContext 
+                        id={`option-${optIdx}`}
+                        items={manageItems[`option-${optIdx}`] || []}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <ManageDroppableContainer id={`option-${optIdx}`} className="space-y-1 min-h-[50px]">
+                          {(manageItems[`option-${optIdx}`] || []).map(id => {
+                            const userId = parseInt(id.split(':').pop()!);
+                            const voter = selectedPollForDetails.voterAnswers?.[userId];
+                            return <ManageSortableVoter key={id} id={id} name={voter?.name || 'Unknown'} />;
+                          })}
+                        </ManageDroppableContainer>
+                      </SortableContext>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Options */}
-              <div className="w-2/3 space-y-4">
-                {selectedPollForDetails.options.map((opt, optIdx) => (
-                  <div 
-                    key={optIdx} 
-                    className="p-4 border rounded-xl bg-neutral-50"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={async (e) => {
-                      const voterId = parseInt(e.dataTransfer.getData('voterId'));
-                      const sourceOptionIdx = parseInt(e.dataTransfer.getData('optionIdx'));
-                      const voter = selectedPollForDetails.voterAnswers?.[voterId];
-                      if (!voter) return;
-
-                      const newOptionIds = [...voter.optionIds];
-                      let newOptionVoterOrder = { ...(selectedPollForDetails.optionVoterOrder || {}) };
-                      if (!newOptionVoterOrder[optIdx]) newOptionVoterOrder[optIdx] = [];
-
-                      if (sourceOptionIdx === -1) {
-                        // Add vote
-                        if (!newOptionIds.includes(optIdx)) {
-                          newOptionIds.push(optIdx);
-                          newOptionVoterOrder[optIdx].push(voter.userId);
-                        }
-                      } else if (sourceOptionIdx !== optIdx) {
-                        // Move vote
-                        newOptionIds.push(optIdx);
-                        newOptionIds.splice(newOptionIds.indexOf(sourceOptionIdx), 1);
-                        newOptionVoterOrder[optIdx].push(voter.userId);
-                        newOptionVoterOrder[sourceOptionIdx] = newOptionVoterOrder[sourceOptionIdx].filter(id => id !== voter.userId);
-                      } else {
-                        // Reorder within option
-                        // This is tricky with current drag-and-drop.
-                        // For now, just append to end of order if not already there.
-                        if (!newOptionVoterOrder[optIdx].includes(voter.userId)) {
-                          newOptionVoterOrder[optIdx].push(voter.userId);
-                        }
-                      }
-
-                      await updateVoterAnswer(selectedPollForDetails.id, voterId, newOptionIds, newOptionVoterOrder);
-                    }}
-                  >
-                    <h4 className="font-bold mb-2 text-sm">{opt.text}</h4>
-                    <div className="space-y-1">
-                      {(() => {
-                        const voters = Object.values(selectedPollForDetails.voterAnswers || {}).filter(v => v.optionIds.includes(optIdx));
-                        const order = selectedPollForDetails.optionVoterOrder?.[optIdx] || [];
-                        
-                        // Sort by order, then by votedAt
-                        return voters.sort((a, b) => {
-                          const aIdx = order.indexOf(a.userId);
-                          const bIdx = order.indexOf(b.userId);
-                          if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-                          if (aIdx !== -1) return -1;
-                          if (bIdx !== -1) return 1;
-                          return a.votedAt - b.votedAt;
-                        });
-                      })().map(voter => (
-                        <div 
-                          key={voter.userId} 
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('voterId', voter.userId.toString());
-                            e.dataTransfer.setData('optionIdx', optIdx.toString());
-                          }}
-                          className="p-2 bg-white border rounded-lg cursor-grab text-xs font-medium"
-                        >
-                          {voter.name}
-                        </div>
-                      ))}
-                    </div>
+              <DragOverlay>
+                {activeManageId ? (
+                  <div className="p-2 bg-white border rounded-lg cursor-grabbing text-xs font-medium shadow-lg border-indigo-500">
+                    {(() => {
+                      const userId = parseInt(activeManageId.split(':').pop()!);
+                      return selectedPollForDetails.voterAnswers?.[userId]?.name || 'Unknown';
+                    })()}
                   </div>
-                ))}
-              </div>
-            </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
 
             <div className="mt-6 p-4 border-t">
               <h4 className="font-bold mb-2">Add New Voter</h4>
@@ -457,7 +595,7 @@ export function PollDetailsModal({
                             return aIdx - bIdx;
                           });
                           return (
-                            <DndContext collisionDetection={closestCenter} onDragEnd={(e) => handleDragEnd(e, idx)}>
+                            <DndContext collisionDetection={rectIntersection} onDragEnd={(e) => handleDragEnd(e, idx)}>
                               <SortableContext items={sortedVoters.map(v => v.userId)} strategy={verticalListSortingStrategy}>
                                 <div className="flex flex-wrap gap-1.5">
                                   {sortedVoters.map((v, i) => (
