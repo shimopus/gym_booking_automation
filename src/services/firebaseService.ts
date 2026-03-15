@@ -31,13 +31,11 @@ export const saveRawUpdatesToFirebase = async (updates: any[]) => {
     const rawUpdatesCollection = collection(db, 'rawUpdates');
     for (const update of updates) {
       const pollId = update.poll?.id || update.poll_answer?.poll_id || update.pollId || null;
-      const timestamp = update.timestamp || (update.poll_answer?.date ? update.poll_answer.date * 1000 : Date.now());
       
       const docData = {
         ...update,
         pollId,
-        processed: false,
-        timestamp
+        processed: false
       };
 
       if (update.update_id) {

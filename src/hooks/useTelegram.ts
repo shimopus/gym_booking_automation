@@ -192,10 +192,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
             const snapshot = await getDocs(q);
             const updates = snapshot.docs.map(doc => doc.data());
             
-            const sortedUpdates = [...updates].sort((a, b) => {
-              if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
-              return (a.update_id || 0) - (b.update_id || 0);
-            });
+            const sortedUpdates = [...updates].sort((a, b) => (a.update_id || 0) - (b.update_id || 0));
 
             sortedUpdates.forEach(update => {
               if (update.poll_answer) {
@@ -208,7 +205,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
                     name: [au.user.first_name, au.user.last_name].filter(Boolean).join(' '),
                     username: au.user.username || null,
                     optionIds: au.option_ids,
-                    votedAt: update.timestamp
+                    votedAt: update.update_id
                   };
                 }
               }
@@ -639,10 +636,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     const snapshot = await getDocs(q);
     const updates = snapshot.docs.map(doc => doc.data());
 
-    const sortedUpdates = [...updates].sort((a, b) => {
-      if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
-      return (a.update_id || 0) - (b.update_id || 0);
-    });
+    const sortedUpdates = [...updates].sort((a, b) => (a.update_id || 0) - (b.update_id || 0));
 
     const finalVoterAnswers: { [userId: number]: VoterInfo } = {};
     sortedUpdates.forEach(update => {
@@ -656,7 +650,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
             name: [au.user.first_name, au.user.last_name].filter(Boolean).join(' '),
             username: au.user.username || null,
             optionIds: au.option_ids,
-            votedAt: update.timestamp
+            votedAt: update.update_id
           };
         }
       }
@@ -694,11 +688,8 @@ export function useTelegram(user: any, isAuthReady: boolean) {
       const updates = rawUpdatesByPoll[poll.id] || [];
       voterAnswers = {};
 
-      // Sort updates by timestamp to process them in order
-      const sortedUpdates = [...updates].sort((a, b) => {
-        if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
-        return (a.update_id || 0) - (b.update_id || 0);
-      });
+      // Sort updates by update_id to process them in order
+      const sortedUpdates = [...updates].sort((a, b) => (a.update_id || 0) - (b.update_id || 0));
 
       sortedUpdates.forEach(update => {
         if (update.poll_answer) {
@@ -711,7 +702,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
               name: [au.user.first_name, au.user.last_name].filter(Boolean).join(' '),
               username: au.user.username || null,
               optionIds: au.option_ids,
-              votedAt: update.timestamp
+              votedAt: update.update_id
             };
           }
         }
