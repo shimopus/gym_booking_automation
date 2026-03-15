@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Send, CheckSquare, Square, Loader2, GripVertical } from 'lucide-react';
+import { X, Send, CheckSquare, Square, Loader2, GripVertical, Plus, UserPlus } from 'lucide-react';
 import { ActivePoll, VoterInfo } from '../types';
 import { 
   DndContext, 
@@ -117,6 +117,7 @@ export function PollDetailsModal({
   updateVoterOrder
 }: PollDetailsModalProps) {
   const [showManageVotes, setShowManageVotes] = React.useState(false);
+  const [showAddVoter, setShowAddVoter] = React.useState(false);
   const [manageItems, setManageItems] = React.useState<{ [key: string]: string[] }>({});
   const [activeManageId, setActiveManageId] = React.useState<string | null>(null);
 
@@ -301,14 +302,73 @@ export function PollDetailsModal({
             >
               <div className="flex gap-6">
                 {/* All Voters List */}
-                <div className="w-1/3 p-4 border rounded-xl bg-neutral-100">
-                  <h4 className="font-bold mb-2 text-sm">All Voters</h4>
+                <div className="w-1/3 p-4 border rounded-xl bg-neutral-100 flex flex-col">
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-bold text-sm">All Voters</h4>
+                    <button 
+                      onClick={() => setShowAddVoter(!showAddVoter)}
+                      className="p-1 hover:bg-neutral-200 rounded-lg transition-colors text-indigo-600"
+                      title="Add New Voter"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {showAddVoter && (
+                    <div className="mb-4 p-3 bg-white border rounded-xl shadow-sm space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                      <input 
+                        id="newVoterName" 
+                        type="text" 
+                        placeholder="Name" 
+                        className="w-full p-1.5 text-xs border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" 
+                      />
+                      <input 
+                        id="newVoterUsername" 
+                        type="text" 
+                        placeholder="Alias (optional)" 
+                        className="w-full p-1.5 text-xs border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" 
+                      />
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => setShowAddVoter(false)}
+                          className="flex-1 px-2 py-1.5 text-[10px] font-bold text-neutral-500 hover:bg-neutral-50 rounded-lg"
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          onClick={async () => {
+                            const nameInput = document.getElementById('newVoterName') as HTMLInputElement;
+                            const usernameInput = document.getElementById('newVoterUsername') as HTMLInputElement;
+                            if (nameInput.value) {
+                              const newVoter: VoterInfo = {
+                                userId: Date.now(),
+                                name: nameInput.value,
+                                optionIds: [],
+                                votedAt: Date.now()
+                              };
+                              if (usernameInput.value) {
+                                newVoter.username = usernameInput.value;
+                              }
+                              await addVoterAnswer(selectedPollForDetails.id, newVoter);
+                              nameInput.value = '';
+                              usernameInput.value = '';
+                              setShowAddVoter(false);
+                            }
+                          }}
+                          className="flex-1 px-2 py-1.5 text-[10px] font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <SortableContext 
                     id="all-voters"
                     items={manageItems['all-voters'] || []}
                     strategy={verticalListSortingStrategy}
                   >
-                    <ManageDroppableContainer id="all-voters" className="space-y-2 min-h-[100px]">
+                    <ManageDroppableContainer id="all-voters" className="space-y-2 min-h-[100px] flex-1 overflow-y-auto">
                       {(manageItems['all-voters'] || []).map(id => {
                         const userId = parseInt(id.split(':').pop()!);
                         const voter = selectedPollForDetails.voterAnswers?.[userId];
@@ -352,39 +412,6 @@ export function PollDetailsModal({
                 ) : null}
               </DragOverlay>
             </DndContext>
-
-            <div className="mt-6 p-4 border-t">
-              <h4 className="font-bold mb-2">Add New Voter</h4>
-              <div className="flex flex-col gap-2">
-                <div className="flex gap-2">
-                  <input id="newVoterName" type="text" placeholder="Name" className="flex-1 p-2 border rounded-lg" />
-                  <input id="newVoterUsername" type="text" placeholder="Alias" className="flex-1 p-2 border rounded-lg" />
-                </div>
-                <button 
-                  onClick={async () => {
-                    const nameInput = document.getElementById('newVoterName') as HTMLInputElement;
-                    const usernameInput = document.getElementById('newVoterUsername') as HTMLInputElement;
-                    if (nameInput.value) {
-                      const newVoter: VoterInfo = {
-                        userId: Date.now(),
-                        name: nameInput.value,
-                        optionIds: [],
-                        votedAt: Date.now()
-                      };
-                      if (usernameInput.value) {
-                        newVoter.username = usernameInput.value;
-                      }
-                      await addVoterAnswer(selectedPollForDetails.id, newVoter);
-                      nameInput.value = '';
-                      usernameInput.value = '';
-                    }
-                  }}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg"
-                >
-                  Add
-                </button>
-              </div>
-            </div>
           </div>
         )}
 
