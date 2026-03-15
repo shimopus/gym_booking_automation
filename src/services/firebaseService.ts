@@ -5,7 +5,21 @@ import { ActivePoll } from '../types';
 export const savePollToFirebase = async (poll: ActivePoll) => {
   if (!auth.currentUser) return;
   try {
-    await setDoc(doc(db, 'polls', poll.id), poll);
+    // Strip undefined values to prevent Firestore errors
+    const cleanPoll = JSON.parse(JSON.stringify(poll));
+    if (cleanPoll.isStopped === undefined) {
+      cleanPoll.isStopped = false;
+    }
+    
+    // We don't need to store computed counts in the database
+    delete cleanPoll.totalVoterCount;
+    if (cleanPoll.options) {
+      cleanPoll.options.forEach((opt: any) => {
+        delete opt.voter_count;
+      });
+    }
+
+    await setDoc(doc(db, 'polls', poll.id), cleanPoll);
   } catch (err) {
     console.error('Failed to save poll to Firebase', err);
   }
@@ -16,11 +30,21 @@ export const saveRawUpdatesToFirebase = async (updates: any[]) => {
   try {
     const rawUpdatesCollection = collection(db, 'rawUpdates');
     for (const update of updates) {
-      await addDoc(rawUpdatesCollection, {
+      const pollId = update.poll?.id || update.poll_answer?.poll_id || update.pollId || null;
+      const timestamp = update.timestamp || (update.poll_answer?.date ? update.poll_answer.date * 1000 : Date.now());
+      
+      const docData = {
         ...update,
+        pollId,
         processed: false,
-        timestamp: Date.now()
-      });
+        timestamp
+      };
+
+      if (update.update_id) {
+        await setDoc(doc(rawUpdatesCollection, update.update_id.toString()), docData);
+      } else {
+        await addDoc(rawUpdatesCollection, docData);
+      }
     }
   } catch (err) {
     console.error('Failed to save raw updates to Firebase', err);

@@ -71,12 +71,14 @@ export function ActivePollsTab({
                 <p className="text-sm font-bold text-neutral-900 mb-4 pr-8 line-clamp-2 leading-tight">{poll.question}</p>
                 <div className="space-y-2.5">
                   {poll.options.map((opt, i) => {
-                    const percentage = poll.totalVoterCount > 0 ? (opt.voter_count / poll.totalVoterCount) * 100 : 0;
+                    const totalVoterCount = poll.totalVoterCount || 0;
+                    const voterCount = opt.voter_count || 0;
+                    const percentage = totalVoterCount > 0 ? (voterCount / totalVoterCount) * 100 : 0;
                     return (
                       <div key={i} className="space-y-1">
                         <div className="flex justify-between text-[11px] text-neutral-600 font-medium">
                           <span className="truncate pr-2">{opt.text}</span>
-                          <span className="font-bold text-indigo-600">{opt.voter_count}</span>
+                          <span className="font-bold text-indigo-600">{voterCount}</span>
                         </div>
                         <div className="h-1.5 w-full bg-neutral-100 rounded-full overflow-hidden">
                           <div 
@@ -94,7 +96,7 @@ export function ActivePollsTab({
                     {new Date(poll.createdAt).toLocaleDateString()}
                   </span>
                   <span className="font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-md">
-                    {poll.totalVoterCount} total votes
+                    {poll.totalVoterCount || 0} total votes
                   </span>
                 </div>
               </div>

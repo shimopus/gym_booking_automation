@@ -5,7 +5,7 @@ import { DndContext, closestCenter, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-function SortableVoter({ voter, index, id }: { voter: VoterInfo; index: number; id: number }) {
+const SortableVoter: React.FC<{ voter: VoterInfo; index: number; id: number }> = ({ voter, index, id }) => {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
   const style = { transform: CSS.Transform.toString(transform), transition };
 
@@ -19,7 +19,7 @@ function SortableVoter({ voter, index, id }: { voter: VoterInfo; index: number; 
           : 'bg-neutral-50 border-neutral-200 text-neutral-500 opacity-75'
       }`}
     >
-      <div {...attributes} {...listeners} className="cursor-grab">
+      <div {...attributes} {...listeners} className="cursor-grab touch-none">
         <GripVertical className="w-3 h-3 opacity-50" />
       </div>
       <span className="font-bold opacity-50">{index + 1}.</span>
@@ -27,7 +27,7 @@ function SortableVoter({ voter, index, id }: { voter: VoterInfo; index: number; 
       {voter.username && <span className="opacity-70">@{voter.username}</span>}
     </div>
   );
-}
+};
 
 interface PollDetailsModalProps {
   selectedPollForDetails: ActivePoll | null;
@@ -427,6 +427,8 @@ export function PollDetailsModal({
                   const voters = (Object.values(selectedPollForDetails.voterAnswers || {}) as VoterInfo[])
                     .filter(v => v.optionIds.includes(idx))
                     .sort((a, b) => a.votedAt - b.votedAt);
+                  const totalVoterCount = selectedPollForDetails.totalVoterCount || 0;
+                  const voterCount = opt.voter_count || 0;
                   
                   return (
                     <div key={idx} className="space-y-3">
@@ -434,7 +436,7 @@ export function PollDetailsModal({
                         <span className="text-sm font-semibold text-neutral-800">{opt.text}</span>
                         <div className="flex flex-col items-end">
                           <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
-                            {opt.voter_count} total votes
+                            {voterCount} total votes
                           </span>
                           <span className="text-[10px] text-neutral-500">
                             {voters.length} tracked
@@ -445,38 +447,41 @@ export function PollDetailsModal({
                       <div className="h-2 w-full bg-neutral-100 rounded-full overflow-hidden">
                         <div 
                           className="h-full bg-indigo-500 transition-all duration-500" 
-                          style={{ width: `${selectedPollForDetails.totalVoterCount > 0 ? (opt.voter_count / selectedPollForDetails.totalVoterCount) * 100 : 0}%` }}
+                          style={{ width: `${totalVoterCount > 0 ? (voterCount / totalVoterCount) * 100 : 0}%` }}
                         />
                       </div>
 
                       {voters.length > 0 ? (
-                        <DndContext collisionDetection={closestCenter} onDragEnd={(e) => handleDragEnd(e, idx)}>
-                          <SortableContext items={voters.map(v => v.userId)} strategy={verticalListSortingStrategy}>
-                            <div className="flex flex-wrap gap-1.5">
-                              {voters.sort((a, b) => {
-                                const order = selectedPollForDetails.optionVoterOrder?.[idx] || [];
-                                const aIdx = order.indexOf(a.userId);
-                                const bIdx = order.indexOf(b.userId);
-                                if (aIdx === -1 && bIdx === -1) return a.votedAt - b.votedAt;
-                                if (aIdx === -1) return 1;
-                                if (bIdx === -1) return -1;
-                                return aIdx - bIdx;
-                              }).map((v, i) => (
-                                <div key={v.userId}>
-                                  <SortableVoter id={v.userId} voter={v} index={i} />
+                        (() => {
+                          const sortedVoters = [...voters].sort((a, b) => {
+                            const order = selectedPollForDetails.optionVoterOrder?.[idx] || [];
+                            const aIdx = order.indexOf(a.userId);
+                            const bIdx = order.indexOf(b.userId);
+                            if (aIdx === -1 && bIdx === -1) return a.votedAt - b.votedAt;
+                            if (aIdx === -1) return 1;
+                            if (bIdx === -1) return -1;
+                            return aIdx - bIdx;
+                          });
+                          return (
+                            <DndContext collisionDetection={closestCenter} onDragEnd={(e) => handleDragEnd(e, idx)}>
+                              <SortableContext items={sortedVoters.map(v => v.userId)} strategy={verticalListSortingStrategy}>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {sortedVoters.map((v, i) => (
+                                    <SortableVoter key={v.userId} id={v.userId} voter={v} index={i} />
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
-                          </SortableContext>
-                        </DndContext>
+                              </SortableContext>
+                            </DndContext>
+                          );
+                        })()
                       ) : (
                         <p className="text-[10px] text-neutral-400 italic">No tracked votes yet</p>
                       )}
                       
-                      {voters.length < opt.voter_count && (
+                      {voters.length < voterCount && (
                         <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
                           <p className="text-[10px] text-amber-800">
-                            Missing {opt.voter_count - voters.length} voter details.
+                            Missing {voterCount - voters.length} voter details.
                           </p>
                           <button 
                             onClick={() => reSyncPoll(selectedPollForDetails.id)}

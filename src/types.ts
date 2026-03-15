@@ -7,7 +7,7 @@ export interface Slot {
 
 export interface PollOption {
   text: string;
-  voter_count: number;
+  voter_count?: number;
   price2h?: number;
 }
 
@@ -46,7 +46,7 @@ export interface ActivePoll {
   messageId: number;
   question: string;
   options: PollOption[];
-  totalVoterCount: number;
+  totalVoterCount?: number;
   createdAt: number;
   isStopped?: boolean;
   voterAnswers?: { [userId: number]: VoterInfo };

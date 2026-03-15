@@ -80,6 +80,18 @@
       },
       "required": ["id", "messageId", "question", "options", "totalVoterCount", "createdAt"]
     },
+    "RawUpdate": {
+      "title": "RawUpdate",
+      "description": "Raw update from Telegram",
+      "type": "object",
+      "properties": {
+        "update_id": { "type": "number" },
+        "pollId": { "type": "string" },
+        "processed": { "type": "boolean" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["timestamp"]
+    },
     "Settings": {
       "title": "Settings",
       "description": "App settings",
@@ -95,6 +107,10 @@
     "polls/{pollId}": {
       "schema": { "$ref": "ActivePoll" },
       "description": "Active polls"
+    },
+    "rawUpdates/{updateId}": {
+      "schema": { "$ref": "RawUpdate" },
+      "description": "Raw updates from Telegram"
     },
     "settings/{settingId}": {
       "schema": { "$ref": "Settings" },

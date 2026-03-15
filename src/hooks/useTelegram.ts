@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { collection, doc, onSnapshot } from 'firebase/firestore';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { collection, doc, onSnapshot, query, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { ActivePoll, PollOption, VoterInfo, SentSummary, SentLineup } from '../types';
 import { savePollToFirebase, deletePollFromFirebase, saveLastUpdateId, saveRawUpdatesToFirebase } from '../services/firebaseService';
@@ -15,6 +15,8 @@ export function useTelegram(user: any, isAuthReady: boolean) {
   const [isSavingLineup, setIsSavingLineup] = useState(false);
   const [lineupPreviews, setLineupPreviews] = useState<{ optionIndex: number; text: string; users?: any[] }[] | null>(null);
   const originalTgBotTokenRef = useRef('');
+
+  const [rawUpdatesByPoll, setRawUpdatesByPoll] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
     if (!isAuthReady || !user) return;
@@ -42,6 +44,30 @@ export function useTelegram(user: any, isAuthReady: boolean) {
       unsubscribeSettings();
     };
   }, [isAuthReady, user]);
+
+  useEffect(() => {
+    if (!isAuthReady || !user) return;
+
+    const activePollIds = activePolls.filter(p => !p.isStopped).map(p => p.id);
+    const unsubscribes: (() => void)[] = [];
+
+    activePollIds.forEach(pollId => {
+      const q = query(collection(db, 'rawUpdates'), where('pollId', '==', pollId));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const updates = snapshot.docs.map(doc => doc.data());
+        setRawUpdatesByPoll(prev => ({
+          ...prev,
+          [pollId]: updates
+        }));
+      });
+      unsubscribes.push(unsubscribe);
+    });
+
+    return () => {
+      unsubscribes.forEach(unsub => unsub());
+    };
+  }, [activePolls.filter(p => !p.isStopped).map(p => p.id).join(','), isAuthReady, user]);
+
 
   const handleSendPoll = async (pollQuestion: string, pollOptions: Partial<PollOption>[], isBulkPoll: boolean) => {
     if (!tgBotToken || !tgChatId) return;
@@ -76,11 +102,11 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         question: data.result.poll.question,
         options: data.result.poll.options.map((o: any, idx: number) => ({ 
           text: o.text, 
-          voter_count: o.voter_count,
           price2h: finalOptions[idx]?.price2h
         })),
-        totalVoterCount: data.result.poll.total_voter_count,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        isStopped: false,
+        voterAnswers: {}
       };
 
       await savePollToFirebase(newPoll);
@@ -94,8 +120,13 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     }
   };
 
+  const activePollsRef = useRef<ActivePoll[]>([]);
+  useEffect(() => {
+    activePollsRef.current = activePolls;
+  }, [activePolls]);
+
   const refreshPolls = useCallback(async () => {
-    if (!tgBotToken || activePolls.length === 0) return;
+    if (!tgBotToken || activePollsRef.current.length === 0) return;
     
     setIsRefreshingPolls(true);
     try {
@@ -133,75 +164,86 @@ export function useTelegram(user: any, isAuthReady: boolean) {
       const pollUpdates = allUpdates
         .filter((u: any) => u.poll)
         .map((u: any) => u.poll);
-
-      const pollAnswerUpdates = allUpdates
-        .filter((u: any) => u.poll_answer)
-        .map((u: any) => u.poll_answer);
         
       // Calculate next polls based on current activePolls and new polls from updates
-      const nextPolls = [...activePolls];
+      const nextPolls = [...activePollsRef.current];
       
       // Process poll updates to update existing polls or add new ones
-      pollUpdates.forEach((pollUpdate: any) => {
+      for (const pollUpdate of pollUpdates) {
         const existingPollIndex = nextPolls.findIndex(p => p.id === pollUpdate.id);
         if (existingPollIndex !== -1) {
           // Update existing poll
           const p = nextPolls[existingPollIndex];
+          const isNewlyClosed = pollUpdate.is_closed && !p.isStopped;
+          
+          let finalVoterAnswers: { [userId: number]: VoterInfo } = p.voterAnswers || {};
+          let finalOptions = pollUpdate.options.map((o: any) => {
+            const existingOption = p.options.find((eo: any) => eo.text === o.text);
+            return { 
+              text: o.text, 
+              price2h: existingOption?.price2h
+            };
+          });
+          
+          if (isNewlyClosed) {
+            finalVoterAnswers = {};
+            // Fetch all rawUpdates for this poll to compute final voterAnswers
+            const q = query(collection(db, 'rawUpdates'), where('pollId', '==', p.id));
+            const snapshot = await getDocs(q);
+            const updates = snapshot.docs.map(doc => doc.data());
+            
+            const sortedUpdates = [...updates].sort((a, b) => {
+              if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
+              return (a.update_id || 0) - (b.update_id || 0);
+            });
+
+            sortedUpdates.forEach(update => {
+              if (update.poll_answer) {
+                const au = update.poll_answer;
+                if (au.option_ids.length === 0) {
+                  delete finalVoterAnswers[au.user.id];
+                } else {
+                  finalVoterAnswers[au.user.id] = {
+                    userId: au.user.id,
+                    name: [au.user.first_name, au.user.last_name].filter(Boolean).join(' '),
+                    username: au.user.username || null,
+                    optionIds: au.option_ids,
+                    votedAt: update.timestamp
+                  };
+                }
+              }
+            });
+          } else if (!p.isStopped) {
+            finalVoterAnswers = {};
+          }
+
           nextPolls[existingPollIndex] = {
             ...p,
-            options: pollUpdate.options.map((o: any) => {
-              const existingOption = p.options.find((eo: any) => eo.text === o.text);
-              return { 
-                text: o.text, 
-                voter_count: o.voter_count,
-                price2h: existingOption?.price2h
-              };
-            }),
-            totalVoterCount: pollUpdate.total_voter_count
+            options: finalOptions,
+            isStopped: pollUpdate.is_closed || p.isStopped || false,
+            voterAnswers: finalVoterAnswers
           };
+          
+          // Remove computed counts to avoid unnecessary Firebase writes
+          delete nextPolls[existingPollIndex].totalVoterCount;
         } else {
           // Add new poll
           nextPolls.push({
             id: pollUpdate.id,
             messageId: 0, // We don't have the messageId here
             question: pollUpdate.question,
-            options: pollUpdate.options.map((o: any) => ({ text: o.text, voter_count: o.voter_count })),
-            totalVoterCount: pollUpdate.total_voter_count,
+            options: pollUpdate.options.map((o: any) => ({ text: o.text })),
             createdAt: Date.now(),
+            isStopped: pollUpdate.is_closed || false,
             voterAnswers: {}
           });
         }
-      });
-
-      // Process poll answer updates
-      pollAnswerUpdates.forEach((au: any) => {
-        const pollIndex = nextPolls.findIndex(p => p.id === au.poll_id);
-        if (pollIndex !== -1) {
-          const updatedPoll = { ...nextPolls[pollIndex] };
-          const currentVoterAnswers = { ...(updatedPoll.voterAnswers || {}) };
-          
-          if (au.option_ids.length === 0) {
-            delete currentVoterAnswers[au.user.id];
-          } else {
-            currentVoterAnswers[au.user.id] = {
-              userId: au.user.id,
-              name: [au.user.first_name, au.user.last_name].filter(Boolean).join(' '),
-              username: au.user.username || null,
-              optionIds: au.option_ids,
-              votedAt: au.date ? au.date * 1000 : Date.now()
-            };
-          }
-          updatedPoll.voterAnswers = currentVoterAnswers;
-          nextPolls[pollIndex] = updatedPoll;
-        } else {
-          console.warn(`Received poll_answer for unknown poll: ${au.poll_id}`);
-        }
-      });
+      }
 
       // Save modified polls to Firebase
       // onSnapshot will handle updating local state
       for (const p of nextPolls) {
-        const prev = activePolls.find(old => old.id === p.id);
+        const prev = activePollsRef.current.find(old => old.id === p.id);
         if (JSON.stringify(prev) !== JSON.stringify(p)) {
           await savePollToFirebase(p);
         }
@@ -214,7 +256,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     } finally {
       setIsRefreshingPolls(false);
     }
-  }, [tgBotToken, activePolls, lastUpdateId]);
+  }, [tgBotToken, lastUpdateId]);
 
   const reSyncPoll = useCallback(async (pollId: string) => {
     setLastUpdateId(0);
@@ -515,6 +557,11 @@ export function useTelegram(user: any, isAuthReady: boolean) {
   const updateVoterAnswer = async (pollId: string, userId: number, newOptionIds: number[], newOptionVoterOrder?: { [optionId: number]: number[] }) => {
     const poll = activePolls.find(p => p.id === pollId);
     if (!poll) return;
+    
+    if (!poll.isStopped) {
+      console.warn("Manual updates can only happen on stopped polls.");
+      return;
+    }
 
     const updatedPoll = { ...poll };
     const currentVoterAnswers = { ...(updatedPoll.voterAnswers || {}) };
@@ -536,6 +583,11 @@ export function useTelegram(user: any, isAuthReady: boolean) {
   const addVoterAnswer = async (pollId: string, voter: VoterInfo) => {
     const poll = activePolls.find(p => p.id === pollId);
     if (!poll) return;
+
+    if (!poll.isStopped) {
+      console.warn("Manual updates can only happen on stopped polls.");
+      return;
+    }
 
     const updatedPoll = { ...poll };
     const currentVoterAnswers = { ...(updatedPoll.voterAnswers || {}) };
@@ -572,13 +624,53 @@ export function useTelegram(user: any, isAuthReady: boolean) {
       return;
     }
 
-    const updatedPoll = { ...poll, isStopped: true };
+    // Refresh poll updates the last time to get the final state
+    await refreshPolls();
+
+    // Build the poll from rawUpdates and store it in the polls collection
+    const q = query(collection(db, 'rawUpdates'), where('pollId', '==', pollId));
+    const snapshot = await getDocs(q);
+    const updates = snapshot.docs.map(doc => doc.data());
+
+    const sortedUpdates = [...updates].sort((a, b) => {
+      if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
+      return (a.update_id || 0) - (b.update_id || 0);
+    });
+
+    const finalVoterAnswers: { [userId: number]: VoterInfo } = {};
+    sortedUpdates.forEach(update => {
+      if (update.poll_answer) {
+        const au = update.poll_answer;
+        if (au.option_ids.length === 0) {
+          delete finalVoterAnswers[au.user.id];
+        } else {
+          finalVoterAnswers[au.user.id] = {
+            userId: au.user.id,
+            name: [au.user.first_name, au.user.last_name].filter(Boolean).join(' '),
+            username: au.user.username || null,
+            optionIds: au.option_ids,
+            votedAt: update.timestamp
+          };
+        }
+      }
+    });
+
+    const updatedPoll = { 
+      ...poll, 
+      isStopped: true,
+      voterAnswers: finalVoterAnswers
+    };
     await savePollToFirebase(updatedPoll);
   };
 
   const updateVoterOrder = async (pollId: string, optionId: number, newVoterIds: number[]) => {
     const poll = activePolls.find(p => p.id === pollId);
     if (!poll) return;
+
+    if (!poll.isStopped) {
+      console.warn("Manual updates can only happen on stopped polls.");
+      return;
+    }
 
     const updatedPoll = { ...poll };
     updatedPoll.optionVoterOrder = {
@@ -588,12 +680,66 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     await savePollToFirebase(updatedPoll);
   };
 
+  const pollsWithAnswers = useMemo(() => activePolls.map(poll => {
+    let voterAnswers = poll.voterAnswers || {};
+
+    if (!poll.isStopped) {
+      const updates = rawUpdatesByPoll[poll.id] || [];
+      voterAnswers = {};
+
+      // Sort updates by timestamp to process them in order
+      const sortedUpdates = [...updates].sort((a, b) => {
+        if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
+        return (a.update_id || 0) - (b.update_id || 0);
+      });
+
+      sortedUpdates.forEach(update => {
+        if (update.poll_answer) {
+          const au = update.poll_answer;
+          if (au.option_ids.length === 0) {
+            delete voterAnswers[au.user.id];
+          } else {
+            voterAnswers[au.user.id] = {
+              userId: au.user.id,
+              name: [au.user.first_name, au.user.last_name].filter(Boolean).join(' '),
+              username: au.user.username || null,
+              optionIds: au.option_ids,
+              votedAt: update.timestamp
+            };
+          }
+        }
+      });
+    }
+
+    const optionCounts: { [optionIndex: number]: number } = {};
+    let totalVoterCount = 0;
+
+    (Object.values(voterAnswers) as VoterInfo[]).forEach(voter => {
+      totalVoterCount++;
+      voter.optionIds.forEach(optId => {
+        optionCounts[optId] = (optionCounts[optId] || 0) + 1;
+      });
+    });
+
+    const updatedOptions = poll.options.map((opt, index) => ({
+      ...opt,
+      voter_count: optionCounts[index] || 0
+    }));
+
+    return {
+      ...poll,
+      options: updatedOptions,
+      totalVoterCount,
+      voterAnswers
+    };
+  }), [activePolls, rawUpdatesByPoll]);
+
   return {
     tgBotToken,
     setTgBotToken,
     tgChatId,
     setTgChatId,
-    activePolls,
+    activePolls: pollsWithAnswers,
     isRefreshingPolls,
     isSendingPoll,
     isSendingLineup,

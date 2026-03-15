@@ -103,7 +103,8 @@ export default function App() {
     if (activeTab === 'polls') {
       refreshPolls();
     }
-  }, [activeTab, refreshPolls]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
