@@ -96,7 +96,7 @@ export function ActivePollsTab({
                     {new Date(poll.createdAt).toLocaleDateString()}
                   </span>
                   <span className="font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-md">
-                    {poll.totalVoterCount || 0} total votes
+                    {poll.totalVoterCount || 0} votes
                   </span>
                 </div>
               </div>

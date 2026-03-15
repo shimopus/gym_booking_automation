@@ -258,12 +258,6 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     }
   }, [tgBotToken, lastUpdateId]);
 
-  const reSyncPoll = useCallback(async (pollId: string) => {
-    setLastUpdateId(0);
-    await saveLastUpdateId(0);
-    await refreshPolls();
-  }, [refreshPolls]);
-
   // Auto-refresh logic
   useEffect(() => {
     if (!tgBotToken || activePolls.length === 0) return;
@@ -753,7 +747,6 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     handleSaveEditedLineup,
     handleSendFinalLineups,
     prepareLineups,
-    reSyncPoll,
     updateVoterAnswer,
     addVoterAnswer,
     stopPoll,

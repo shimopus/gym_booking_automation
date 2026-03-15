@@ -43,7 +43,6 @@ interface PollDetailsModalProps {
   isSendingLineup: boolean;
   ignoreVoteLimit: boolean;
   setIgnoreVoteLimit: (ignore: boolean) => void;
-  reSyncPoll: (pollId: string) => Promise<void>;
   updateVoterAnswer: (pollId: string, userId: number, newOptionIds: number[], newOptionVoterOrder?: { [optionId: number]: number[] }) => Promise<void>;
   addVoterAnswer: (pollId: string, voter: VoterInfo) => Promise<void>;
   stopPoll: (pollId: string) => Promise<void>;
@@ -64,7 +63,6 @@ export function PollDetailsModal({
   isSendingLineup,
   ignoreVoteLimit,
   setIgnoreVoteLimit,
-  reSyncPoll,
   updateVoterAnswer,
   addVoterAnswer,
   stopPoll,
@@ -428,7 +426,6 @@ export function PollDetailsModal({
                     .filter(v => v.optionIds.includes(idx))
                     .sort((a, b) => a.votedAt - b.votedAt);
                   const totalVoterCount = selectedPollForDetails.totalVoterCount || 0;
-                  const voterCount = opt.voter_count || 0;
                   
                   return (
                     <div key={idx} className="space-y-3">
@@ -436,10 +433,7 @@ export function PollDetailsModal({
                         <span className="text-sm font-semibold text-neutral-800">{opt.text}</span>
                         <div className="flex flex-col items-end">
                           <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
-                            {voterCount} total votes
-                          </span>
-                          <span className="text-[10px] text-neutral-500">
-                            {voters.length} tracked
+                            {voters.length} votes
                           </span>
                         </div>
                       </div>
@@ -447,7 +441,7 @@ export function PollDetailsModal({
                       <div className="h-2 w-full bg-neutral-100 rounded-full overflow-hidden">
                         <div 
                           className="h-full bg-indigo-500 transition-all duration-500" 
-                          style={{ width: `${totalVoterCount > 0 ? (voterCount / totalVoterCount) * 100 : 0}%` }}
+                          style={{ width: `${totalVoterCount > 0 ? (voters.length / totalVoterCount) * 100 : 0}%` }}
                         />
                       </div>
 
@@ -478,19 +472,6 @@ export function PollDetailsModal({
                         <p className="text-[10px] text-neutral-400 italic">No tracked votes yet</p>
                       )}
                       
-                      {voters.length < voterCount && (
-                        <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
-                          <p className="text-[10px] text-amber-800">
-                            Missing {voterCount - voters.length} voter details.
-                          </p>
-                          <button 
-                            onClick={() => reSyncPoll(selectedPollForDetails.id)}
-                            className="text-[10px] font-bold text-amber-700 hover:text-amber-900 underline"
-                          >
-                            Re-sync
-                          </button>
-                        </div>
-                      )}
                     </div>
                   );
                 })}

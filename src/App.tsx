@@ -58,7 +58,6 @@ export default function App() {
     handleSaveEditedLineup,
     handleSendFinalLineups,
     prepareLineups,
-    reSyncPoll,
     updateVoterAnswer,
     addVoterAnswer,
     stopPoll,
@@ -470,7 +469,6 @@ export default function App() {
           isSendingLineup={isSendingLineup}
           ignoreVoteLimit={ignoreVoteLimit}
           setIgnoreVoteLimit={setIgnoreVoteLimit}
-          reSyncPoll={reSyncPoll}
           updateVoterAnswer={updateVoterAnswer}
           addVoterAnswer={addVoterAnswer}
           stopPoll={stopPoll}
