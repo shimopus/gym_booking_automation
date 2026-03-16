@@ -3,11 +3,10 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
-// Dynamic Favicon Cropping
+// Dynamic Favicon Cropping & PNG Conversion
 const updateFavicon = () => {
   const img = new Image();
-  img.crossOrigin = "anonymous";
-  img.src = "https://storage.googleapis.com/static.miraiproject.io/ai-studio-build/user_uploads/67d66765-8869-450b-932f-a39151044700.png";
+  img.src = "/Gemini_bot_icon.jpg";
   
   img.onload = () => {
     const canvas = document.createElement('canvas');
@@ -17,19 +16,15 @@ const updateFavicon = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Create circular clip
+    // Create circular clip (this provides the transparency)
     ctx.beginPath();
     ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
     ctx.clip();
 
-    // Draw image zoomed in to focus on the circular logo
-    // The logo is centered, so we scale it up slightly to fill the circle
-    const zoom = 1.35; 
-    const drawSize = size * zoom;
-    const offset = (size - drawSize) / 2;
-    ctx.drawImage(img, offset, offset, drawSize, drawSize);
+    // Draw the image to the circular canvas
+    ctx.drawImage(img, 0, 0, size, size);
 
-    // Update the link tag
+    // Update the link tag with a PNG data URL
     let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
     if (!link) {
       link = document.createElement('link');
