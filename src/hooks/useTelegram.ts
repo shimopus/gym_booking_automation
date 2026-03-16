@@ -298,7 +298,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         let newText = `<b>💰 Summary Payments</b>\n\n`;
         nextUsers.forEach(u => {
           const mention = u.username 
-            ? `@${u.username.replace(/_/g, '\\_')}` 
+            ? `@${u.username}` 
             : `<a href="tg://user?id=${u.userId}">${u.name}</a>`;
           const displayName = u.username ? `${u.name} (${mention})` : mention;
           const statusEmoji = u.paid ? ' ✅' : ' ❌';
@@ -490,16 +490,19 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         });
       }
 
-      if (optionVoters.length >= 12 || (ignoreVoteLimit && optionVoters.length > 0)) {
+      // Only include the first 12 voters for each option
+      const limitedVoters = optionVoters.slice(0, 12);
+
+      if (limitedVoters.length >= 12 || (ignoreVoteLimit && limitedVoters.length > 0)) {
         let message = `<b>${option.text}</b>\n\n`;
         
         const pricePerVote = option.price2h !== undefined 
-          ? Math.ceil((option.price2h / optionVoters.length) / 0.5) * 0.5 
+          ? Math.ceil((option.price2h / limitedVoters.length) / 0.5) * 0.5 
           : 0;
 
-        optionVoters.forEach((v, idx) => {
+        limitedVoters.forEach((v, idx) => {
           const mention = v.username 
-            ? `@${v.username.replace(/_/g, '\\_')}` 
+            ? `@${v.username}` 
             : `<a href="tg://user?id=${v.userId}">${v.name}</a>`;
           const displayName = v.username ? `${v.name} (${mention})` : mention;
           message += `${idx + 1}. ${displayName}\n`;
@@ -526,7 +529,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
       const usersForSummary = sortedUsers.map(u => {
         const roundedTotal = u.total; // Already rounded per vote
         const mention = u.username 
-          ? `@${u.username.replace(/_/g, '\\_')}` 
+          ? `@${u.username}` 
           : `<a href="tg://user?id=${u.userId}">${u.name}</a>`;
         
         const displayName = u.username ? `${u.name} (${mention})` : mention;
