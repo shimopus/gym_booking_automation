@@ -2,11 +2,12 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import iconUrl from './assets/Gemini_bot_icon.jpg';
 
 // Dynamic Favicon Cropping & PNG Conversion
 const updateFavicon = () => {
   const img = new Image();
-  img.src = "/Gemini_bot_icon.jpg";
+  img.src = iconUrl;
   
   img.onload = () => {
     const canvas = document.createElement('canvas');
