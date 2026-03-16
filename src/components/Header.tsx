@@ -10,19 +10,20 @@ interface HeaderProps {
 export function Header({ user, setShowSettings }: HeaderProps) {
   return (
     <header className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">Court Availability Finder</h1>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-2">
-          <p className="text-neutral-500">Find weekday slots of 2 hours or more at SportsHouse.</p>
-          <a 
-            href="https://apps.daysmartrecreation.com/dash/x/#/online/sportshouse/login?noAutoLogin=1" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
-          >
-            Book on SportsHouse
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
+      <div className="flex items-start gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-neutral-900">Volleyball Court Bot</h1>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-1">
+            <a 
+              href="https://apps.daysmartrecreation.com/dash/x/#/online/sportshouse/login?noAutoLogin=1" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
+            >
+              Book on SportsHouse
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-3">
