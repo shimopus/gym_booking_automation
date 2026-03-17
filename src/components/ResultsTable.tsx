@@ -15,6 +15,7 @@ interface ResultsTableProps {
   rowSpans: number[];
   weekColors: Map<string, boolean>;
   calculateDuration: (start: Date, end: Date) => string;
+  fetchedRange: {start: string, end: string} | null;
 }
 
 export function ResultsTable({
@@ -28,9 +29,10 @@ export function ResultsTable({
   setSelectedRows,
   rowSpans,
   weekColors,
-  calculateDuration
+  calculateDuration,
+  fetchedRange
 }: ResultsTableProps) {
-  if (results.length === 0) {
+  if (!fetchedRange && results.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-neutral-400 space-y-4 flex-1">
         <div className="w-20 h-20 rounded-full bg-neutral-50 flex items-center justify-center">
@@ -82,19 +84,27 @@ export function ResultsTable({
             <th className="px-5 py-4 font-medium w-20 text-center">
               <button 
                 onClick={() => {
-                  if (selectedRows.size === displayResults.length) {
+                  const selectableIndices = displayResults
+                    .map((slot, i) => !slot.isSkipped ? i : -1)
+                    .filter(i => i !== -1);
+                    
+                  if (selectedRows.size === selectableIndices.length && selectableIndices.length > 0) {
                     setSelectedRows(new Set());
                   } else {
-                    setSelectedRows(new Set(displayResults.map((_, i) => i)));
+                    setSelectedRows(new Set(selectableIndices));
                   }
                 }}
                 className="flex items-center justify-center gap-1 mx-auto p-1 hover:bg-neutral-200 rounded transition-colors"
               >
-                {selectedRows.size === displayResults.length && displayResults.length > 0 ? (
-                  <CheckSquare className="w-4 h-4 text-indigo-600" />
-                ) : (
-                  <Square className="w-4 h-4 text-neutral-300" />
-                )}
+                {(() => {
+                  const selectableCount = displayResults.filter(s => !s.isSkipped).length;
+                  const isAllSelected = selectedRows.size === selectableCount && selectableCount > 0;
+                  return isAllSelected ? (
+                    <CheckSquare className="w-4 h-4 text-indigo-600" />
+                  ) : (
+                    <Square className="w-4 h-4 text-neutral-300" />
+                  );
+                })()}
                 <span className="text-[10px]">ALL</span>
               </button>
             </th>
@@ -122,41 +132,49 @@ export function ResultsTable({
                       </td>
                     </>
                   )}
-                  <td className="px-5 py-4 whitespace-nowrap text-neutral-900">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-neutral-400" />
-                      {slot.resourceName}
-                    </div>
-                  </td>
-                  <td className="px-5 py-4 whitespace-nowrap text-indigo-600 font-medium">
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-indigo-400" />
-                      {formatTime(slot.start)} - {formatTime(slot.end)}
-                    </div>
-                  </td>
-                  <td className="px-5 py-4 whitespace-nowrap text-neutral-600 font-medium">
-                    {calculateDuration(slot.start, slot.end)}
-                  </td>
-                  <td className="px-5 py-4 whitespace-nowrap text-emerald-600 font-medium">
-                    {slot.price2h ? `$${slot.price2h.toFixed(2)}` : 'N/A'}
-                  </td>
-                  <td className="px-5 py-4 whitespace-nowrap text-center">
-                    <button 
-                      onClick={() => {
-                        const next = new Set(selectedRows);
-                        if (next.has(idx)) next.delete(idx);
-                        else next.add(idx);
-                        setSelectedRows(next);
-                      }}
-                      className="p-1 hover:bg-neutral-200 rounded transition-colors"
-                    >
-                      {selectedRows.has(idx) ? (
-                        <CheckSquare className="w-5 h-5 text-indigo-600" />
-                      ) : (
-                        <Square className="w-5 h-5 text-neutral-300" />
-                      )}
-                    </button>
-                  </td>
+                  {slot.isSkipped ? (
+                    <td colSpan={5} className="px-5 py-4 text-neutral-400 italic text-center bg-neutral-50/50">
+                      No slots available (or all &lt; 2h)
+                    </td>
+                  ) : (
+                    <>
+                      <td className="px-5 py-4 whitespace-nowrap text-neutral-900">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-neutral-400" />
+                          {slot.resourceName}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap text-indigo-600 font-medium">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-indigo-400" />
+                          {formatTime(slot.start)} - {formatTime(slot.end)}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap text-neutral-600 font-medium">
+                        {calculateDuration(slot.start, slot.end)}
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap text-emerald-600 font-medium">
+                        {slot.price2h ? `$${slot.price2h.toFixed(2)}` : 'N/A'}
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap text-center">
+                        <button 
+                          onClick={() => {
+                            const next = new Set(selectedRows);
+                            if (next.has(idx)) next.delete(idx);
+                            else next.add(idx);
+                            setSelectedRows(next);
+                          }}
+                          className="p-1 hover:bg-neutral-200 rounded transition-colors"
+                        >
+                          {selectedRows.has(idx) ? (
+                            <CheckSquare className="w-5 h-5 text-indigo-600" />
+                          ) : (
+                            <Square className="w-5 h-5 text-neutral-300" />
+                          )}
+                        </button>
+                      </td>
+                    </>
+                  )}
                 </tr>
               );
             })

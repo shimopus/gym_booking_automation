@@ -56,9 +56,7 @@ export const parseMultipleJSON = (text: string) => {
   return results;
 };
 
-export const processJsonData = (input: string) => {
-  const parsedDocs = parseMultipleJSON(input);
-
+export const processJsonData = (parsedDocs: any[]) => {
   const resourceMap = new Map<string, string>();
   const slots: Slot[] = [];
 
@@ -94,19 +92,18 @@ export const processJsonData = (input: string) => {
   });
 
   if (slots.length === 0) {
-    throw new Error("No valid availability slots found in the provided JSON.");
+    return [];
   }
-
-  // Filter weekdays (0 = Sunday, 6 = Saturday)
-  const weekdaySlots = slots.filter(slot => {
-    const day = slot.start.getDay();
-    return day !== 0 && day !== 6;
-  });
 
   // Group by date and resource
   const grouped = new Map<string, Slot[]>();
-  weekdaySlots.forEach(slot => {
-    const dateStr = slot.start.toISOString().split('T')[0];
+  slots.forEach(slot => {
+    // Use local date for grouping to avoid timezone shifts
+    const y = slot.start.getFullYear();
+    const m = String(slot.start.getMonth() + 1).padStart(2, '0');
+    const d = String(slot.start.getDate()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${d}`;
+    
     const key = `${dateStr}_${slot.resourceId}`;
     if (!grouped.has(key)) {
       grouped.set(key, []);
@@ -126,7 +123,8 @@ export const processJsonData = (input: string) => {
     for (let i = 1; i < groupSlots.length; i++) {
       const nextSlot = groupSlots[i];
       // If next slot starts exactly when current ends, or before (overlap)
-      if (nextSlot.start.getTime() <= currentSlot.end.getTime()) {
+      // Allow for a small gap (up to 1 minute) in case of API inconsistencies
+      if (nextSlot.start.getTime() <= currentSlot.end.getTime() + 60 * 1000) {
         currentSlot.end = new Date(Math.max(currentSlot.end.getTime(), nextSlot.end.getTime()));
       } else {
         // Push current and start new

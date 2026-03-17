@@ -12,6 +12,8 @@ interface FilterDropdownProps {
   toggleGroup: (courts: string[], allSelected: boolean) => void;
   selectAll: () => void;
   clearAll: () => void;
+  showUnavailable: boolean;
+  setShowUnavailable: (show: boolean) => void;
 }
 
 export function FilterDropdown({
@@ -24,7 +26,9 @@ export function FilterDropdown({
   toggleCourt,
   toggleGroup,
   selectAll,
-  clearAll
+  clearAll,
+  showUnavailable,
+  setShowUnavailable
 }: FilterDropdownProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -152,6 +156,20 @@ export function FilterDropdown({
                 </div>
               </div>
             )}
+          </div>
+          
+          <div className="p-3 border-t border-neutral-100 bg-neutral-50/50">
+            <div 
+              className="flex items-center gap-2 p-2 hover:bg-neutral-100 rounded-lg cursor-pointer group transition-colors"
+              onClick={() => setShowUnavailable(!showUnavailable)}
+            >
+              {showUnavailable ? (
+                <CheckSquare className="w-4 h-4 text-indigo-600" />
+              ) : (
+                <Square className="w-4 h-4 text-neutral-300 group-hover:text-neutral-400" />
+              )}
+              <span className="text-xs font-medium text-neutral-700">Show unavailable slots</span>
+            </div>
           </div>
         </div>
       )}

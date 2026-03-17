@@ -71,7 +71,8 @@ export default function App() {
     error,
     setError,
     fetchFromSportsHouse,
-    setResults
+    setResults,
+    fetchedRange
   } = useSportsHouse();
 
   useMigration(user, isAuthReady);
@@ -82,6 +83,8 @@ export default function App() {
     selectedCourts,
     selectedRows,
     setSelectedRows,
+    showUnavailable,
+    setShowUnavailable,
     uniqueCourts,
     bballCourts,
     otherCourts,
@@ -91,7 +94,7 @@ export default function App() {
     selectAll,
     clearAll,
     handleSort
-  } = useFilters(results);
+  } = useFilters(results, fetchedRange);
 
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   
@@ -353,7 +356,10 @@ export default function App() {
                       <h2 className="text-lg font-medium">Available Slots</h2>
                       {results.length > 0 && (
                         <span className="bg-indigo-50 text-indigo-700 py-1 px-3 rounded-full text-sm font-medium">
-                          {displayResults.length} {displayResults.length !== results.length ? `of ${results.length} ` : ''}slots found
+                          {(() => {
+                            const displayCount = displayResults.filter(r => !r.isSkipped).length;
+                            return `${displayCount} ${displayCount !== results.length ? `of ${results.length} ` : ''}slots found`;
+                          })()}
                         </span>
                       )}
                     </div>
@@ -372,6 +378,8 @@ export default function App() {
                             toggleGroup={toggleGroup}
                             selectAll={selectAll}
                             clearAll={clearAll}
+                            showUnavailable={showUnavailable}
+                            setShowUnavailable={setShowUnavailable}
                           />
 
                           <button
@@ -412,6 +420,7 @@ export default function App() {
                         rowSpans={rowSpans}
                         weekColors={weekColors}
                         calculateDuration={calculateDuration}
+                        fetchedRange={fetchedRange}
                       />
                     </div>
                   </div>

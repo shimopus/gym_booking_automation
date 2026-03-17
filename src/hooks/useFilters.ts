@@ -1,23 +1,42 @@
 import { useState, useMemo, useEffect } from 'react';
 import { MergedSlot } from '../types';
 
-export function useFilters(results: MergedSlot[]) {
+export function useFilters(results: MergedSlot[], fetchedRange: {start: string, end: string} | null) {
   const [sortField, setSortField] = useState<'date' | 'weekday'>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [selectedCourts, setSelectedCourts] = useState<Set<string>>(new Set());
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
-  const [hasInitializedFilter, setHasInitializedFilter] = useState(false);
+  const [seenCourts, setSeenCourts] = useState<Set<string>>(new Set());
+  const [showUnavailable, setShowUnavailable] = useState<boolean>(false);
 
   const uniqueCourts = useMemo(() => Array.from(new Set<string>(results.map(r => r.resourceName))).sort(), [results]);
   const bballCourts = useMemo(() => uniqueCourts.filter(c => c.toLowerCase().startsWith('bball')), [uniqueCourts]);
   const otherCourts = useMemo(() => uniqueCourts.filter(c => !c.toLowerCase().startsWith('bball')), [uniqueCourts]);
 
   useEffect(() => {
-    if (!hasInitializedFilter && uniqueCourts.length > 0) {
-      setSelectedCourts(new Set(uniqueCourts));
-      setHasInitializedFilter(true);
+    if (uniqueCourts.length > 0) {
+      let changed = false;
+      const nextSeen = new Set(seenCourts);
+      const newCourts: string[] = [];
+      
+      uniqueCourts.forEach(court => {
+        if (!nextSeen.has(court)) {
+          nextSeen.add(court);
+          newCourts.push(court);
+          changed = true;
+        }
+      });
+      
+      if (changed) {
+        setSeenCourts(nextSeen);
+        setSelectedCourts(prev => {
+          const next = new Set(prev);
+          newCourts.forEach(c => next.add(c));
+          return next;
+        });
+      }
     }
-  }, [uniqueCourts, hasInitializedFilter]);
+  }, [uniqueCourts, seenCourts]);
 
   const toggleCourt = (court: string) => {
     setSelectedRows(new Set());
@@ -75,6 +94,35 @@ export function useFilters(results: MergedSlot[]) {
   const displayResults = useMemo(() => {
     let filtered = results.filter(r => selectedCourts.has(r.resourceName));
     
+    // Add skipped days
+    if (fetchedRange && showUnavailable) {
+      const start = new Date(fetchedRange.start + 'T00:00:00');
+      const end = new Date(fetchedRange.end + 'T00:00:00');
+      const datesWithSlots = new Set(filtered.map(r => r.dateStr));
+      
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const day = d.getDay();
+        // Only Mon-Fri (1-5)
+        if (day !== 0 && day !== 6) {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const date = String(d.getDate()).padStart(2, '0');
+          const dateStr = `${y}-${m}-${date}`;
+          
+          if (!datesWithSlots.has(dateStr)) {
+            filtered.push({
+              dateStr,
+              date: new Date(d),
+              start: new Date(d),
+              end: new Date(d),
+              resourceName: 'No slots available (or < 2h)',
+              isSkipped: true
+            });
+          }
+        }
+      }
+    }
+    
     filtered.sort((a, b) => {
       let comparison = 0;
       if (sortField === 'date') {
@@ -93,7 +141,7 @@ export function useFilters(results: MergedSlot[]) {
     });
     
     return filtered;
-  }, [results, selectedCourts, sortField, sortDirection]);
+  }, [results, selectedCourts, sortField, sortDirection, fetchedRange, showUnavailable]);
 
   return {
     sortField,
@@ -102,6 +150,8 @@ export function useFilters(results: MergedSlot[]) {
     setSelectedCourts,
     selectedRows,
     setSelectedRows,
+    showUnavailable,
+    setShowUnavailable,
     uniqueCourts,
     bballCourts,
     otherCourts,

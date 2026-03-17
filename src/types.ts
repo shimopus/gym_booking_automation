@@ -62,4 +62,5 @@ export interface MergedSlot {
   end: Date;
   resourceName: string;
   price2h?: number;
+  isSkipped?: boolean;
 }
