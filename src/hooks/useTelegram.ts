@@ -295,7 +295,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         nextUsers[userIndex] = { ...nextUsers[userIndex], paid: newPaidStatus };
         
         // Rebuild the text
-        let newText = `<b>💰 Summary Payments</b>\n\n`;
+        let newText = `<b>💰 Summary Payments</b>\nДеньги переводим по Zelle: 6692045921\n\n`;
         nextUsers.forEach(u => {
           const mention = u.username 
             ? `@${u.username}` 
@@ -521,7 +521,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     }
 
     if (Object.keys(userCosts).length > 0) {
-      let summary = `<b>💰 Summary Payments</b>\n\n`;
+      let summary = `<b>💰 Summary Payments</b>\nДеньги переводим по Zelle: 6692045921\n\n`;
       const sortedUsers = Object.entries(userCosts)
         .map(([userId, data]) => ({ userId: Number(userId), ...data }))
         .sort((a, b) => a.name.localeCompare(b.name));
