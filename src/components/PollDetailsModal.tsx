@@ -447,15 +447,17 @@ export function PollDetailsModal({
                 {selectedPollForDetails.sentSummaries.map((summary, sIdx) => (
                   <div key={sIdx} className="bg-neutral-50 rounded-2xl p-4 border border-neutral-200">
                     <div className="flex justify-between items-center mb-4">
-                      <span className="text-[10px] font-bold text-neutral-400 uppercase">
-                        Sent {new Date(summary.timestamp).toLocaleString()}
-                      </span>
-                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-                        <div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
-                        Live on Telegram
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] font-bold text-neutral-400 uppercase">
+                          Sent {new Date(summary.timestamp).toLocaleString()}
+                        </span>
+                        <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                          <div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
+                          Live on Telegram
+                        </span>
+                      </div>
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-2 mb-4">
                       {summary.users.map((user, uIdx) => (
                         <div key={uIdx} className="flex items-center justify-between bg-white p-3 rounded-xl border border-neutral-100 shadow-sm">
                           <div className="flex items-center gap-3">
@@ -482,6 +484,12 @@ export function PollDetailsModal({
                           </button>
                         </div>
                       ))}
+                    </div>
+                    <div className="flex justify-end pt-3 border-t border-neutral-200">
+                      <div className="text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 flex items-center gap-2">
+                        <span>Total to collect:</span>
+                        <span className="text-sm">${summary.users.reduce((acc, user) => acc + (user.total || 0), 0).toFixed(2)}</span>
+                      </div>
                     </div>
                   </div>
                 ))}
