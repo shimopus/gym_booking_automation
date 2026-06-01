@@ -23,7 +23,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-const SortableVoter: React.FC<{ voter: VoterInfo; index: number; id: number }> = ({ voter, index, id }) => {
+const SortableVoter: React.FC<{ voter: VoterInfo; index: number; id: number; targetVoterCount: number }> = ({ voter, index, id, targetVoterCount }) => {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
   const style = { transform: CSS.Transform.toString(transform), transition };
 
@@ -32,7 +32,7 @@ const SortableVoter: React.FC<{ voter: VoterInfo; index: number; id: number }> =
       ref={setNodeRef} 
       style={style} 
       className={`text-[10px] border px-2 py-1 rounded-lg flex items-center gap-1 ${
-        index < 12 
+        index < targetVoterCount 
           ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
           : 'bg-neutral-50 border-neutral-200 text-neutral-500 opacity-75'
       }`}
@@ -87,7 +87,7 @@ interface PollDetailsModalProps {
   isSavingLineup: boolean;
   showPollDetails: boolean;
   setShowPollDetails: (show: boolean) => void;
-  prepareLineups: (poll: ActivePoll) => void;
+  prepareLineups: (poll: ActivePoll, targetVoterCounts: Record<number, number>) => void;
   isSendingLineup: boolean;
   ignoreVoteLimit: boolean;
   setIgnoreVoteLimit: (ignore: boolean) => void;
@@ -120,6 +120,7 @@ export function PollDetailsModal({
   const [showAddVoter, setShowAddVoter] = React.useState(false);
   const [manageItems, setManageItems] = React.useState<{ [key: string]: string[] }>({});
   const [activeManageId, setActiveManageId] = React.useState<string | null>(null);
+  const [targetVoterCounts, setTargetVoterCounts] = React.useState<Record<number, number>>({});
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -596,7 +597,32 @@ export function PollDetailsModal({
                     <div key={idx} className="space-y-3">
                       <div className="flex justify-between items-end">
                         <span className="text-sm font-semibold text-neutral-800">{opt.text}</span>
-                        <div className="flex flex-col items-end">
+                        <div className="flex flex-col items-end gap-1.5">
+                          <div className="flex items-center gap-2">
+                            <label className="text-[10px] font-medium text-neutral-500">Players limit:</label>
+                            <div className="flex bg-neutral-100 border border-neutral-200 rounded p-0.5">
+                              <button
+                                onClick={() => setTargetVoterCounts(prev => ({ ...prev, [idx]: 12 }))}
+                                className={`px-2 text-[10px] font-semibold rounded-sm transition-all py-0.5 ${
+                                  (targetVoterCounts[idx] || 12) === 12 
+                                    ? 'bg-white shadow-sm text-indigo-700' 
+                                    : 'text-neutral-500 hover:text-neutral-700 hover:bg-neutral-200/50'
+                                }`}
+                              >
+                                12
+                              </button>
+                              <button
+                                onClick={() => setTargetVoterCounts(prev => ({ ...prev, [idx]: 18 }))}
+                                className={`px-2 text-[10px] font-semibold rounded-sm transition-all py-0.5 ${
+                                  targetVoterCounts[idx] === 18 
+                                    ? 'bg-white shadow-sm text-indigo-700' 
+                                    : 'text-neutral-500 hover:text-neutral-700 hover:bg-neutral-200/50'
+                                }`}
+                              >
+                                18
+                              </button>
+                            </div>
+                          </div>
                           <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
                             {voters.length} votes
                           </span>
@@ -626,7 +652,7 @@ export function PollDetailsModal({
                               <SortableContext items={sortedVoters.map(v => v.userId)} strategy={verticalListSortingStrategy}>
                                 <div className="flex flex-wrap gap-1.5">
                                   {sortedVoters.map((v, i) => (
-                                    <SortableVoter key={v.userId} id={v.userId} voter={v} index={i} />
+                                    <SortableVoter key={v.userId} id={v.userId} voter={v} index={i} targetVoterCount={targetVoterCounts[idx] || 12} />
                                   ))}
                                 </div>
                               </SortableContext>
@@ -648,7 +674,7 @@ export function PollDetailsModal({
         <div className="p-4 bg-neutral-50 border-t border-neutral-100 flex justify-between items-center">
           <div className="flex items-center gap-4">
             <button 
-              onClick={() => prepareLineups(selectedPollForDetails)}
+              onClick={() => prepareLineups(selectedPollForDetails, targetVoterCounts)}
               disabled={isSendingLineup || !selectedPollForDetails.voterAnswers || (selectedPollForDetails.sentSummaries && selectedPollForDetails.sentSummaries.length > 0)}
               className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all shadow-sm disabled:opacity-50"
             >
@@ -656,15 +682,17 @@ export function PollDetailsModal({
               {selectedPollForDetails.sentSummaries && selectedPollForDetails.sentSummaries.length > 0 ? 'Lineups Sent' : 'Prepare Lineups'}
             </button>
             {!(selectedPollForDetails.sentSummaries && selectedPollForDetails.sentSummaries.length > 0) && (
-              <label className="flex items-center gap-1.5 text-[10px] font-medium text-neutral-400 hover:text-neutral-600 cursor-pointer transition-colors" title="Ignore 12 vote limit (Debug)">
-                <input 
-                  type="checkbox" 
-                  checked={ignoreVoteLimit}
-                  onChange={(e) => setIgnoreVoteLimit(e.target.checked)}
-                  className="w-3 h-3 text-indigo-600 rounded-sm border-neutral-300 focus:ring-indigo-500"
-                />
-                Debug
-              </label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 text-[10px] font-medium text-neutral-400 hover:text-neutral-600 cursor-pointer transition-colors" title="Ignore vote limit (Debug)">
+                  <input 
+                    type="checkbox" 
+                    checked={ignoreVoteLimit}
+                    onChange={(e) => setIgnoreVoteLimit(e.target.checked)}
+                    className="w-3 h-3 text-indigo-600 rounded-sm border-neutral-300 focus:ring-indigo-500"
+                  />
+                  Debug
+                </label>
+              </div>
             )}
           </div>
           <button 

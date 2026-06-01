@@ -463,7 +463,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     }
   };
 
-  const prepareLineups = (poll: ActivePoll, ignoreVoteLimit: boolean) => {
+  const prepareLineups = (poll: ActivePoll, targetVoterCounts: Record<number, number>, ignoreVoteLimit: boolean) => {
     if (!poll.voterAnswers) return;
     
     const allVoters = (Object.values(poll.voterAnswers) as VoterInfo[])
@@ -490,14 +490,20 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         });
       }
 
-      // Only include the first 12 voters for each option
-      const limitedVoters = optionVoters.slice(0, 12);
+      const targetCount = targetVoterCounts[i] || 12;
 
-      if (limitedVoters.length >= 12 || (ignoreVoteLimit && limitedVoters.length > 0)) {
+      // Only include the first targetVoterCount voters for each option
+      const limitedVoters = optionVoters.slice(0, targetCount);
+
+      if (limitedVoters.length >= targetCount || (ignoreVoteLimit && limitedVoters.length > 0)) {
         let message = `<b>${option.text}</b>\n\n`;
         
-        const pricePerVote = option.price2h !== undefined 
-          ? Math.ceil((option.price2h / limitedVoters.length) / 0.5) * 0.5 
+        const sessionPrice = option.price2h !== undefined 
+          ? (targetCount === 18 ? option.price2h * 1.5 : option.price2h)
+          : undefined;
+
+        const pricePerVote = sessionPrice !== undefined 
+          ? Math.ceil((sessionPrice / limitedVoters.length) / 0.5) * 0.5 
           : 0;
 
         limitedVoters.forEach((v, idx) => {
@@ -510,7 +516,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
           if (!userCosts[v.userId]) {
             userCosts[v.userId] = { name: v.name, username: v.username, total: 0 };
           }
-          if (option.price2h !== undefined) {
+          if (sessionPrice !== undefined) {
             userCosts[v.userId].total += pricePerVote;
           } else {
             hasMissingPrices = true;
@@ -554,7 +560,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     }
 
     if (previews.length === 0) {
-      alert(ignoreVoteLimit ? 'No sessions have any votes yet.' : 'No sessions have reached the 12 vote minimum yet.');
+      alert(ignoreVoteLimit ? 'No sessions have any votes yet.' : 'No sessions have reached their required vote minimums yet.');
       return;
     }
 

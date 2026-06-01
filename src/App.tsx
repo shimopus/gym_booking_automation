@@ -474,7 +474,7 @@ export default function App() {
           isSavingLineup={isSavingLineup}
           showPollDetails={showPollDetails}
           setShowPollDetails={setShowPollDetails}
-          prepareLineups={(poll) => prepareLineups(poll, ignoreVoteLimit)}
+          prepareLineups={(poll, targetVoterCounts) => prepareLineups(poll, targetVoterCounts, ignoreVoteLimit)}
           isSendingLineup={isSendingLineup}
           ignoreVoteLimit={ignoreVoteLimit}
           setIgnoreVoteLimit={setIgnoreVoteLimit}
