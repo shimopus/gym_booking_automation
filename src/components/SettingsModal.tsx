@@ -1,48 +1,28 @@
 import React from 'react';
-import { X, Loader2, Download } from 'lucide-react';
+import { X } from 'lucide-react';
 
 interface SettingsModalProps {
   showSettings: boolean;
   setShowSettings: (show: boolean) => void;
-  startDate: string;
-  setStartDate: (d: string) => void;
-  endDate: string;
-  setEndDate: (d: string) => void;
-  username: string;
-  setUsername: (u: string) => void;
-  password: string;
-  setPassword: (p: string) => void;
-  rememberMe: boolean;
-  setRememberMe: (r: boolean) => void;
   tgBotToken: string;
   setTgBotToken: (t: string) => void;
   tgChatId: string;
   setTgChatId: (c: string) => void;
+  defaultHourlyPrice: number;
+  setDefaultHourlyPrice: (p: number) => void;
   handleSaveSettings: () => void;
-  handleFetchFromSportsHouse: () => void;
-  isFetching: boolean;
 }
 
 export function SettingsModal({
   showSettings,
   setShowSettings,
-  startDate,
-  setStartDate,
-  endDate,
-  setEndDate,
-  username,
-  setUsername,
-  password,
-  setPassword,
-  rememberMe,
-  setRememberMe,
   tgBotToken,
   setTgBotToken,
   tgChatId,
   setTgChatId,
-  handleSaveSettings,
-  handleFetchFromSportsHouse,
-  isFetching
+  defaultHourlyPrice,
+  setDefaultHourlyPrice,
+  handleSaveSettings
 }: SettingsModalProps) {
   if (!showSettings) return null;
 
@@ -59,64 +39,6 @@ export function SettingsModal({
           </button>
         </div>
         <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-          <section className="space-y-4">
-            <h4 className="text-sm font-bold text-neutral-400 uppercase tracking-wider">SportsHouse API</h4>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">Start Date</label>
-                <input 
-                  type="date" 
-                  value={startDate}
-                  onChange={e => setStartDate(e.target.value)}
-                  className="w-full p-2.5 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">End Date</label>
-                <input 
-                  type="date" 
-                  value={endDate}
-                  onChange={e => setEndDate(e.target.value)}
-                  className="w-full p-2.5 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-1">Email / Username</label>
-              <input 
-                type="text" 
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                className="w-full p-2.5 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                placeholder="Enter your email"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-1">Password</label>
-              <input 
-                type="password" 
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full p-2.5 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                placeholder="Enter your password"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="rememberMe"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="w-4 h-4 text-indigo-600 border-neutral-300 rounded focus:ring-indigo-500"
-              />
-              <label htmlFor="rememberMe" className="text-sm text-neutral-700 cursor-pointer">
-                Remember credentials
-              </label>
-            </div>
-          </section>
-
-          <hr className="border-neutral-100" />
-
           <section className="space-y-4">
             <h4 className="text-sm font-bold text-neutral-400 uppercase tracking-wider">Telegram Notifications</h4>
             <div>
@@ -144,22 +66,23 @@ export function SettingsModal({
                 )}
               </select>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">Default Price for 1h ($)</label>
+              <input 
+                type="number" 
+                value={defaultHourlyPrice}
+                onChange={e => setDefaultHourlyPrice(parseFloat(e.target.value) || 0)}
+                className="w-full p-2.5 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white font-medium"
+              />
+            </div>
           </section>
 
           <div className="flex gap-3 pt-2">
             <button
               onClick={handleSaveSettings}
-              className="flex-1 py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-xl font-medium transition-colors"
+              className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
             >
               Save & Close
-            </button>
-            <button
-              onClick={handleFetchFromSportsHouse}
-              disabled={!username || !password || isFetching}
-              className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              Fetch Now
             </button>
           </div>
         </div>

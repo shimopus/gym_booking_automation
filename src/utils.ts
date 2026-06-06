@@ -34,6 +34,28 @@ export const formatPollOption = (start: Date, end: Date, courtName: string) => {
   return `${day} ${mm}/${dd} | ${timeRange} | ${courtName}`;
 };
 
+export const buildPollOptionText = (dateStr: string, startTime: string, durationHours: number, courtName: string) => {
+  if (!dateStr || !startTime || !courtName) return '';
+  const d = new Date(dateStr);
+  const dayName = d.toLocaleDateString(undefined, { weekday: 'short' });
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+
+  const [hours, minutes] = startTime.split(':').map(Number);
+  const startD = new Date();
+  startD.setHours(hours, minutes, 0, 0);
+  const endD = new Date(startD.getTime() + durationHours * 60 * 60 * 1000);
+
+  const formatTimeStr = (dateObj: Date) => {
+    return dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+      .replace(':00', '')
+      .replace(' ', '');
+  };
+
+  const timeRange = `${formatTimeStr(startD)} - ${formatTimeStr(endD)}`;
+  return `${dayName} ${mm}/${dd} | ${timeRange} | ${courtName}`;
+};
+
 export const getBest2hWindow = (start: Date, end: Date) => {
   const targetStart = new Date(start);
   targetStart.setHours(20, 0, 0, 0); // 8 PM

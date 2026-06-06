@@ -121,6 +121,19 @@ export function PollDetailsModal({
   const [manageItems, setManageItems] = React.useState<{ [key: string]: string[] }>({});
   const [activeManageId, setActiveManageId] = React.useState<string | null>(null);
   const [targetVoterCounts, setTargetVoterCounts] = React.useState<Record<number, number>>({});
+  const [optionPrices, setOptionPrices] = React.useState<Record<number, number>>({});
+
+  React.useEffect(() => {
+    if (selectedPollForDetails) {
+      const initialPrices: Record<number, number> = {};
+      selectedPollForDetails.options.forEach((opt, idx) => {
+        if (opt.price2h !== undefined) {
+          initialPrices[idx] = opt.price2h;
+        }
+      });
+      setOptionPrices(initialPrices);
+    }
+  }, [selectedPollForDetails]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -606,29 +619,45 @@ export function PollDetailsModal({
                       <div className="flex justify-between items-end">
                         <span className="text-sm font-semibold text-neutral-800">{opt.text}</span>
                         <div className="flex flex-col items-end gap-1.5">
-                          <div className="flex items-center gap-2">
-                            <label className="text-[10px] font-medium text-neutral-500">Players limit:</label>
-                            <div className="flex bg-neutral-100 border border-neutral-200 rounded p-0.5">
-                              <button
-                                onClick={() => setTargetVoterCounts(prev => ({ ...prev, [idx]: 12 }))}
-                                className={`px-2 text-[10px] font-semibold rounded-sm transition-all py-0.5 ${
-                                  (targetVoterCounts[idx] || 12) === 12 
-                                    ? 'bg-white shadow-sm text-indigo-700' 
-                                    : 'text-neutral-500 hover:text-neutral-700 hover:bg-neutral-200/50'
-                                }`}
-                              >
-                                12
-                              </button>
-                              <button
-                                onClick={() => setTargetVoterCounts(prev => ({ ...prev, [idx]: 18 }))}
-                                className={`px-2 text-[10px] font-semibold rounded-sm transition-all py-0.5 ${
-                                  targetVoterCounts[idx] === 18 
-                                    ? 'bg-white shadow-sm text-indigo-700' 
-                                    : 'text-neutral-500 hover:text-neutral-700 hover:bg-neutral-200/50'
-                                }`}
-                              >
-                                18
-                              </button>
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-1.5">
+                              <label className="text-[10px] font-medium text-neutral-500">Total Price ($):</label>
+                              <input 
+                                type="number" 
+                                value={optionPrices[idx] !== undefined ? optionPrices[idx] : opt.price2h || 0}
+                                onChange={e => {
+                                  setOptionPrices(prev => ({
+                                    ...prev,
+                                    [idx]: parseFloat(e.target.value) || 0
+                                  }));
+                                }}
+                                className="w-14 p-0.5 text-[10px] font-bold text-indigo-700 bg-white border border-neutral-200 rounded outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label className="text-[10px] font-medium text-neutral-500">Players limit:</label>
+                              <div className="flex bg-neutral-100 border border-neutral-200 rounded p-0.5">
+                                <button
+                                  onClick={() => setTargetVoterCounts(prev => ({ ...prev, [idx]: 12 }))}
+                                  className={`px-2 text-[10px] font-semibold rounded-sm transition-all py-0.5 ${
+                                    (targetVoterCounts[idx] || 12) === 12 
+                                      ? 'bg-white shadow-sm text-indigo-700' 
+                                      : 'text-neutral-500 hover:text-neutral-700 hover:bg-neutral-200/50'
+                                  }`}
+                                >
+                                  12
+                                </button>
+                                <button
+                                  onClick={() => setTargetVoterCounts(prev => ({ ...prev, [idx]: 18 }))}
+                                  className={`px-2 text-[10px] font-semibold rounded-sm transition-all py-0.5 ${
+                                    targetVoterCounts[idx] === 18 
+                                      ? 'bg-white shadow-sm text-indigo-700' 
+                                      : 'text-neutral-500 hover:text-neutral-700 hover:bg-neutral-200/50'
+                                  }`}
+                                >
+                                  18
+                                </button>
+                              </div>
                             </div>
                           </div>
                           <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
@@ -682,7 +711,16 @@ export function PollDetailsModal({
         <div className="p-4 bg-neutral-50 border-t border-neutral-100 flex justify-between items-center">
           <div className="flex items-center gap-4">
             <button 
-              onClick={() => prepareLineups(selectedPollForDetails, targetVoterCounts)}
+              onClick={() => {
+                const updatedPoll = {
+                  ...selectedPollForDetails,
+                  options: selectedPollForDetails.options.map((opt, idx) => ({
+                    ...opt,
+                    price2h: optionPrices[idx] !== undefined ? optionPrices[idx] : opt.price2h
+                  }))
+                };
+                prepareLineups(updatedPoll, targetVoterCounts);
+              }}
               disabled={isSendingLineup || !selectedPollForDetails.voterAnswers || (selectedPollForDetails.sentSummaries && selectedPollForDetails.sentSummaries.length > 0)}
               className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all shadow-sm disabled:opacity-50"
             >

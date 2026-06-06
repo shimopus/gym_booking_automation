@@ -7,6 +7,7 @@ import { savePollToFirebase, deletePollFromFirebase, saveLastUpdateId, saveRawUp
 export function useTelegram(user: any, isAuthReady: boolean) {
   const [tgBotToken, setTgBotToken] = useState('');
   const [tgChatId, setTgChatId] = useState('');
+  const [defaultHourlyPrice, setDefaultHourlyPrice] = useState(110);
   const [lastUpdateId, setLastUpdateId] = useState(0);
   const [activePolls, setActivePolls] = useState<ActivePoll[]>([]);
   const [isRefreshingPolls, setIsRefreshingPolls] = useState(false);
@@ -35,6 +36,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
           originalTgBotTokenRef.current = data.tgBotToken;
         }
         if (data.tgChatId) setTgChatId(data.tgChatId);
+        if (data.defaultHourlyPrice !== undefined) setDefaultHourlyPrice(data.defaultHourlyPrice);
         if (data.lastUpdateId !== undefined) setLastUpdateId(data.lastUpdateId);
       }
     });
@@ -499,7 +501,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         let message = `<b>${option.text}</b>\n\n`;
         
         const sessionPrice = option.price2h !== undefined 
-          ? (targetCount === 18 ? option.price2h * 1.5 : option.price2h)
+          ? option.price2h
           : undefined;
 
         const pricePerVote = sessionPrice !== undefined 
@@ -746,6 +748,8 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     setTgBotToken,
     tgChatId,
     setTgChatId,
+    defaultHourlyPrice,
+    setDefaultHourlyPrice,
     activePolls: pollsWithAnswers,
     isRefreshingPolls,
     isSendingPoll,

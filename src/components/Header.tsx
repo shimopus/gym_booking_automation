@@ -1,5 +1,5 @@
 import React from 'react';
-import { ExternalLink, LogIn, LogOut, Settings } from 'lucide-react';
+import { LogIn, LogOut, Settings } from 'lucide-react';
 import { signIn, logOut } from '../firebase';
 
 interface HeaderProps {
@@ -14,15 +14,7 @@ export function Header({ user, setShowSettings }: HeaderProps) {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-neutral-900">Volleyball Court Bot</h1>
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-1">
-            <a 
-              href="https://apps.daysmartrecreation.com/dash/x/#/online/sportshouse/login?noAutoLogin=1" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
-            >
-              Book on SportsHouse
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
+            <span className="text-sm font-medium text-neutral-500">Telegram Poll Manager</span>
           </div>
         </div>
       </div>
