@@ -36,7 +36,8 @@ export const formatPollOption = (start: Date, end: Date, courtName: string) => {
 
 export const buildPollOptionText = (dateStr: string, startTime: string, durationHours: number, courtName: string) => {
   if (!dateStr || !startTime || !courtName) return '';
-  const d = new Date(dateStr);
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const d = new Date(year, month - 1, day);
   const dayName = d.toLocaleDateString(undefined, { weekday: 'short' });
   const dd = String(d.getDate()).padStart(2, '0');
   const mm = String(d.getMonth() + 1).padStart(2, '0');
