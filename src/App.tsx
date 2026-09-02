@@ -59,6 +59,9 @@ export default function App() {
     handleSendPoll,
     refreshPolls,
     togglePaidStatus,
+    updateUserPayment,
+    addSummaryUser,
+    removeSummaryUser,
     removePoll,
     handleSaveEditedLineup,
     handleSendFinalLineups,
@@ -381,6 +384,9 @@ export default function App() {
         selectedPollForDetails={selectedPollForDetails}
         setSelectedPollForDetails={setSelectedPollForDetails}
         togglePaidStatus={togglePaidStatus}
+        updateUserPayment={updateUserPayment}
+        addSummaryUser={addSummaryUser}
+        removeSummaryUser={removeSummaryUser}
         editingLineup={editingLineup}
         setEditingLineup={setEditingLineup}
         handleSaveEditedLineup={() => selectedPollForDetails && editingLineup && handleSaveEditedLineup(selectedPollForDetails, editingLineup)}

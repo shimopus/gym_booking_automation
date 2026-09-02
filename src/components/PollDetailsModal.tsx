@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Send, CheckSquare, Square, Loader2, GripVertical, Plus, UserPlus } from 'lucide-react';
+import { X, Send, CheckSquare, Square, Loader2, GripVertical, Plus, UserPlus, Trash2 } from 'lucide-react';
 import { ActivePoll, VoterInfo } from '../types';
 import { 
   DndContext, 
@@ -77,10 +77,119 @@ const ManageDroppableContainer: React.FC<{ id: string; children: React.ReactNode
   );
 };
 
+const EditableUserTotal: React.FC<{ initialTotal: number; onSave: (val: number) => void }> = ({ initialTotal, onSave }) => {
+  const [value, setValue] = React.useState(initialTotal.toString());
+  
+  React.useEffect(() => {
+    setValue(initialTotal.toString());
+  }, [initialTotal]);
+
+  const handleBlur = () => {
+    const num = parseFloat(value);
+    if (!isNaN(num) && num !== initialTotal) {
+      onSave(num);
+    } else {
+      setValue(initialTotal.toString());
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <input 
+      type="number" 
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      className="w-10 font-bold text-indigo-700 bg-transparent outline-none focus:ring-0"
+    />
+  );
+};
+
+const EditableUserName: React.FC<{ initialName: string; onSave: (val: string) => void }> = ({ initialName, onSave }) => {
+  const [value, setValue] = React.useState(initialName);
+  
+  React.useEffect(() => {
+    setValue(initialName);
+  }, [initialName]);
+
+  const handleBlur = () => {
+    if (value.trim() && value !== initialName) {
+      onSave(value.trim());
+    } else {
+      setValue(initialName);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <input 
+      type="text" 
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      className="text-sm font-bold text-neutral-900 leading-tight bg-transparent border-b border-transparent hover:border-neutral-200 focus:border-indigo-400 focus:outline-none max-w-[150px]"
+    />
+  );
+};
+
+const EditableUserHandle: React.FC<{ initialUsername?: string; onSave: (val: string) => void }> = ({ initialUsername, onSave }) => {
+  const [value, setValue] = React.useState(initialUsername || '');
+  
+  React.useEffect(() => {
+    setValue(initialUsername || '');
+  }, [initialUsername]);
+
+  const handleBlur = () => {
+    const trimmed = value.trim().replace('@', '');
+    const initial = (initialUsername || '').trim().replace('@', '');
+    if (trimmed !== initial) {
+      onSave(trimmed);
+    } else {
+      setValue(initialUsername || '');
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <div className="flex items-center">
+      <span className="text-neutral-400 mr-0.5">@</span>
+      <input 
+        type="text" 
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        placeholder="username"
+        className="text-[10px] bg-transparent border-b border-transparent hover:border-neutral-200 focus:border-indigo-400 focus:outline-none w-[80px]"
+      />
+    </div>
+  );
+};
+
 interface PollDetailsModalProps {
   selectedPollForDetails: ActivePoll | null;
   setSelectedPollForDetails: (poll: ActivePoll | null) => void;
   togglePaidStatus: (pollId: string, summaryIndex: number, userIndex: number) => void;
+  updateUserPayment: (pollId: string, summaryIndex: number, userIndex: number, updates: { total?: number; name?: string; username?: string }) => Promise<void>;
+  addSummaryUser: (pollId: string, summaryIndex: number, name: string) => Promise<void>;
+  removeSummaryUser: (pollId: string, summaryIndex: number, userIndex: number) => Promise<void>;
   editingLineup: { index: number; text: string } | null;
   setEditingLineup: (lineup: { index: number; text: string } | null) => void;
   handleSaveEditedLineup: () => void;
@@ -101,6 +210,9 @@ export function PollDetailsModal({
   selectedPollForDetails,
   setSelectedPollForDetails,
   togglePaidStatus,
+  updateUserPayment,
+  addSummaryUser,
+  removeSummaryUser,
   editingLineup,
   setEditingLineup,
   handleSaveEditedLineup,
@@ -478,33 +590,82 @@ export function PollDetailsModal({
                               {user.name.charAt(0)}
                             </div>
                             <div>
-                              <p className="text-sm font-bold text-neutral-900 leading-tight">{user.name}</p>
-                              <p className="text-[10px] text-neutral-500">
-                                {user.username ? `@${user.username}` : 'No username'} • ${user.total.toFixed(2)}
-                              </p>
+                              <div className="flex items-center">
+                                <EditableUserName
+                                  initialName={user.name}
+                                  onSave={(val) => updateUserPayment(selectedPollForDetails.id, sIdx, uIdx, { name: val })}
+                                />
+                              </div>
+                              <div className="flex items-center gap-1.5 text-[10px] text-neutral-500 mt-0.5">
+                                <EditableUserHandle
+                                  initialUsername={user.username}
+                                  onSave={(val) => updateUserPayment(selectedPollForDetails.id, sIdx, uIdx, { username: val })}
+                                />
+                                {(!user.username && user.userId) ? <span className="mr-1 ml-1 text-neutral-400">ID: {user.userId}</span> : null}
+                                <span>•</span>
+                                <div className="flex items-center gap-0.5 bg-neutral-50 border border-neutral-200 rounded px-1.5 py-0.5 focus-within:border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-400">
+                                  <span className="font-bold text-neutral-400">$</span>
+                                  <EditableUserTotal 
+                                    initialTotal={user.total}
+                                    onSave={(val) => updateUserPayment(selectedPollForDetails.id, sIdx, uIdx, { total: val })}
+                                  />
+                                </div>
+                              </div>
                             </div>
                           </div>
-                          <button
-                            onClick={() => togglePaidStatus(selectedPollForDetails.id, sIdx, uIdx)}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                              user.paid 
-                                ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 shadow-sm' 
-                                : 'bg-white text-neutral-400 border border-neutral-200 hover:border-indigo-300 hover:text-indigo-600'
-                            }`}
-                          >
-                            {user.paid ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
-                            {user.paid ? 'Paid' : 'Mark Paid'}
+                            <div className="flex flex-col gap-2">
+                              <button
+                                onClick={() => togglePaidStatus(selectedPollForDetails.id, sIdx, uIdx)}
+                                className={`flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all w-full ${
+                                  user.paid 
+                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 shadow-sm' 
+                                    : 'bg-white text-neutral-400 border border-neutral-200 hover:border-indigo-300 hover:text-indigo-600'
+                                }`}
+                              >
+                                {user.paid ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                                {user.paid ? 'Paid' : 'Mark Paid'}
+                              </button>
+                              <button
+                                onClick={() => removeSummaryUser(selectedPollForDetails.id, sIdx, uIdx)}
+                                className="flex items-center justify-center gap-2 px-3 py-1 rounded-lg text-[10px] font-bold text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors w-full border border-transparent hover:border-red-100"
+                              >
+                                <Trash2 className="w-3 h-3" /> Remove
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pt-3 border-t border-neutral-200 gap-3">
+                        <form 
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const formData = new FormData(e.currentTarget);
+                            const newName = formData.get('newName') as string;
+                            if (newName?.trim()) {
+                              addSummaryUser(selectedPollForDetails.id, sIdx, newName.trim());
+                              e.currentTarget.reset();
+                            }
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          <input 
+                            name="newName"
+                            type="text" 
+                            placeholder="Add new person..." 
+                            className="text-xs border border-neutral-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 w-[140px]"
+                          />
+                          <button type="submit" className="bg-indigo-50 text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-100 transition-colors">
+                            <Plus className="w-4 h-4" />
                           </button>
+                        </form>
+                        
+                        <div className="text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 flex items-center gap-2">
+                          <span>Total to collect:</span>
+                          <span className="text-sm">${summary.users.reduce((acc, user) => acc + (user.total || 0), 0).toFixed(2)}</span>
                         </div>
-                      ))}
-                    </div>
-                    <div className="flex justify-end pt-3 border-t border-neutral-200">
-                      <div className="text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 flex items-center gap-2">
-                        <span>Total to collect:</span>
-                        <span className="text-sm">${summary.users.reduce((acc, user) => acc + (user.total || 0), 0).toFixed(2)}</span>
                       </div>
                     </div>
-                  </div>
                 ))}
               </div>
             </div>

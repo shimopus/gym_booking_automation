@@ -345,6 +345,192 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     }
   };
 
+  const updateUserPayment = async (pollId: string, summaryIndex: number, userIndex: number, updates: { total?: number; name?: string }) => {
+    if (!tgBotToken) return;
+    
+    const poll = activePolls.find(p => p.id === pollId);
+    if (!poll || !poll.sentSummaries) return;
+
+    const summary = poll.sentSummaries[summaryIndex];
+    const user = summary.users[userIndex];
+
+    // Update local state
+    const nextPolls = activePolls.map(p => {
+      if (p.id === pollId) {
+        const nextSummaries = [...(p.sentSummaries || [])];
+        const nextUsers = [...nextSummaries[summaryIndex].users];
+        
+        // If name changes, we clear username and userId so it becomes just a manual name
+        if (updates.name !== undefined && updates.name !== nextUsers[userIndex].name) {
+          nextUsers[userIndex] = { 
+            ...nextUsers[userIndex], 
+            ...updates,
+            username: undefined,
+            userId: undefined
+          };
+        } else if (updates.username !== undefined) {
+          nextUsers[userIndex] = { 
+            ...nextUsers[userIndex], 
+            ...updates,
+            username: updates.username ? updates.username.replace('@', '') : undefined 
+          };
+        } else {
+          nextUsers[userIndex] = { ...nextUsers[userIndex], ...updates };
+        }
+        
+        // Rebuild the text
+        let newText = `<b>💰 Summary Payments</b>\nДеньги переводим по Zelle: 6692045921\n\n`;
+        nextUsers.forEach(u => {
+          let mention = u.name;
+          if (u.username) {
+            mention = `@${u.username}`;
+          } else if (u.userId) {
+            mention = `<a href="tg://user?id=${u.userId}">${u.name}</a>`;
+          }
+          
+          const displayName = u.username ? `${u.name} (${mention})` : mention;
+          const statusEmoji = u.paid ? ' ✅' : ' ❌';
+          newText += `${displayName}: <b>$${u.total.toFixed(2)}</b>${statusEmoji}\n`;
+        });
+        
+        if (summary.text.includes('⚠️ Note:')) {
+           newText += `\n<i>⚠️ Note: Some sessions had missing price data. Totals might be incomplete.</i>`;
+        }
+        
+        nextSummaries[summaryIndex] = { 
+          ...nextSummaries[summaryIndex], 
+          users: nextUsers,
+          text: newText 
+        };
+        
+        return { ...p, sentSummaries: nextSummaries };
+      }
+      return p;
+    });
+
+    setActivePolls(nextPolls);
+    const updatedPoll = nextPolls.find(p => p.id === pollId);
+    if (updatedPoll) savePollToFirebase(updatedPoll);
+    
+    try {
+      const updatedSummary = nextPolls.find(p => p.id === pollId)?.sentSummaries?.[summaryIndex];
+      if (updatedSummary) {
+        await fetch(`https://api.telegram.org/bot${tgBotToken}/editMessageText`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: updatedSummary.chatId,
+            message_id: updatedSummary.messageId,
+            text: updatedSummary.text,
+            parse_mode: 'HTML'
+          })
+        });
+      }
+    } catch (err) {
+      console.error('Failed to update Telegram message:', err);
+    }
+  };
+
+  const addSummaryUser = async (pollId: string, summaryIndex: number, name: string) => {
+    if (!tgBotToken) return;
+    const poll = activePolls.find(p => p.id === pollId);
+    if (!poll || !poll.sentSummaries) return;
+
+    const summary = poll.sentSummaries[summaryIndex];
+    const newUser = { name, total: 0, paid: false };
+
+    const nextPolls = activePolls.map(p => {
+      if (p.id === pollId) {
+        const nextSummaries = [...(p.sentSummaries || [])];
+        const nextUsers = [...nextSummaries[summaryIndex].users, newUser];
+        
+        let newText = `<b>💰 Summary Payments</b>\nДеньги переводим по Zelle: 6692045921\n\n`;
+        nextUsers.forEach(u => {
+          let mention = u.name;
+          if (u.username) {
+            mention = `@${u.username}`;
+          } else if (u.userId) {
+            mention = `<a href="tg://user?id=${u.userId}">${u.name}</a>`;
+          }
+          const displayName = u.username ? `${u.name} (${mention})` : mention;
+          const statusEmoji = u.paid ? ' ✅' : ' ❌';
+          newText += `${displayName}: <b>$${u.total.toFixed(2)}</b>${statusEmoji}\n`;
+        });
+        
+        if (summary.text.includes('⚠️ Note:')) {
+           newText += `\n<i>⚠️ Note: Some sessions had missing price data. Totals might be incomplete.</i>`;
+        }
+        
+        nextSummaries[summaryIndex] = { ...nextSummaries[summaryIndex], users: nextUsers, text: newText };
+        return { ...p, sentSummaries: nextSummaries };
+      }
+      return p;
+    });
+
+    setActivePolls(nextPolls);
+    const updatedPoll = nextPolls.find(p => p.id === pollId);
+    if (updatedPoll) savePollToFirebase(updatedPoll);
+    
+    try {
+      const updatedSummary = nextPolls.find(p => p.id === pollId)?.sentSummaries?.[summaryIndex];
+      if (updatedSummary) {
+        await fetch(`https://api.telegram.org/bot${tgBotToken}/editMessageText`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: updatedSummary.chatId, message_id: updatedSummary.messageId, text: updatedSummary.text, parse_mode: 'HTML' })
+        });
+      }
+    } catch (err) { console.error('Failed to update Telegram message:', err); }
+  };
+
+  const removeSummaryUser = async (pollId: string, summaryIndex: number, userIndex: number) => {
+    if (!tgBotToken) return;
+    const poll = activePolls.find(p => p.id === pollId);
+    if (!poll || !poll.sentSummaries) return;
+
+    const summary = poll.sentSummaries[summaryIndex];
+    const nextPolls = activePolls.map(p => {
+      if (p.id === pollId) {
+        const nextSummaries = [...(p.sentSummaries || [])];
+        const nextUsers = nextSummaries[summaryIndex].users.filter((_, idx) => idx !== userIndex);
+        
+        let newText = `<b>💰 Summary Payments</b>\nДеньги переводим по Zelle: 6692045921\n\n`;
+        nextUsers.forEach(u => {
+          let mention = u.name;
+          if (u.username) {
+            mention = `@${u.username}`;
+          } else if (u.userId) {
+            mention = `<a href="tg://user?id=${u.userId}">${u.name}</a>`;
+          }
+          const displayName = u.username ? `${u.name} (${mention})` : mention;
+          const statusEmoji = u.paid ? ' ✅' : ' ❌';
+          newText += `${displayName}: <b>$${u.total.toFixed(2)}</b>${statusEmoji}\n`;
+        });
+        
+        if (summary.text.includes('⚠️ Note:')) {
+           newText += `\n<i>⚠️ Note: Some sessions had missing price data. Totals might be incomplete.</i>`;
+        }
+        
+        nextSummaries[summaryIndex] = { ...nextSummaries[summaryIndex], users: nextUsers, text: newText };
+        return { ...p, sentSummaries: nextSummaries };
+      }
+      return p;
+    });
+
+    setActivePolls(nextPolls);
+    const updatedPoll = nextPolls.find(p => p.id === pollId);
+    if (updatedPoll) savePollToFirebase(updatedPoll);
+    
+    try {
+      const updatedSummary = nextPolls.find(p => p.id === pollId)?.sentSummaries?.[summaryIndex];
+      if (updatedSummary) {
+        await fetch(`https://api.telegram.org/bot${tgBotToken}/editMessageText`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: updatedSummary.chatId, message_id: updatedSummary.messageId, text: updatedSummary.text, parse_mode: 'HTML' })
+        });
+      }
+    } catch (err) { console.error('Failed to update Telegram message:', err); }
+  };
+
   const removePoll = (id: string) => {
     setActivePolls(prev => prev.filter(p => p.id !== id));
     deletePollFromFirebase(id);
@@ -760,6 +946,9 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     handleSendPoll,
     refreshPolls,
     togglePaidStatus,
+    updateUserPayment,
+    addSummaryUser,
+    removeSummaryUser,
     removePoll,
     handleSaveEditedLineup,
     handleSendFinalLineups,

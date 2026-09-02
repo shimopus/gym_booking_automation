@@ -1,3 +1,4 @@
+// Type definitions for the application
 export interface Slot {
   start: Date;
   end: Date;
