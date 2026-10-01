@@ -393,6 +393,7 @@ export default function App() {
               <TelegramMessageEditor
                 tgBotToken={tgBotToken}
                 tgChatId={tgChatId}
+                activePolls={activePolls}
               />
             )}
           </div>

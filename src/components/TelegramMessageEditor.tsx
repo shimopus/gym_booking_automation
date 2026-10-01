@@ -14,18 +14,25 @@ import {
   Code, 
   FileCode, 
   Eye, 
-  RotateCcw,
-  Sparkles,
-  Info,
-  CheckCircle2
+  RotateCcw, 
+  Sparkles, 
+  Info, 
+  CheckCircle2, 
+  User, 
+  History,
+  X,
+  Trash2
 } from 'lucide-react';
+import { telegramEntitiesToHtml } from '../utils/telegramFormat';
+import { ActivePoll } from '../types';
 
 interface TelegramMessageEditorProps {
   tgBotToken: string;
   tgChatId: string;
+  activePolls?: ActivePoll[];
 }
 
-export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageEditorProps) {
+export function TelegramMessageEditor({ tgBotToken, tgChatId, activePolls }: TelegramMessageEditorProps) {
   const [linkInput, setLinkInput] = useState('');
   const [targetChatId, setTargetChatId] = useState(tgChatId || '');
   const [targetMessageId, setTargetMessageId] = useState<number | ''>('');
@@ -39,7 +46,207 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageE
   const [successInfo, setSuccessInfo] = useState<{ messageId: number; time: string } | null>(null);
   
   const [viewMode, setViewMode] = useState<'split' | 'edit' | 'preview'>('split');
+  const [selectedRecentId, setSelectedRecentId] = useState('');
+  const [lastClearedText, setLastClearedText] = useState<string | null>(null);
+  const [confirmClearHistory, setConfirmClearHistory] = useState(false);
+  const [linkDialog, setLinkDialog] = useState<{ type: 'url' | 'user'; value: string } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Stored history of edited/fetched messages in localStorage
+  const [editorHistory, setEditorHistory] = useState<{ id: string; label: string; shortType: string; messageId: number; chatId: string; text?: string; date: number }[]>(() => {
+    try {
+      const raw = localStorage.getItem('tg_editor_history');
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return [];
+  });
+
+  const saveToEditorHistory = (item: { messageId: number; chatId: string; text?: string; label?: string; shortType?: string }) => {
+    setEditorHistory(prev => {
+      const filtered = prev.filter(p => !(p.messageId === item.messageId && p.chatId === item.chatId));
+      const newItem = {
+        id: `hist-${item.chatId}-${item.messageId}`,
+        label: item.label || `Message #${item.messageId} (${item.chatId})`,
+        shortType: item.shortType || 'Message',
+        messageId: item.messageId,
+        chatId: item.chatId,
+        text: item.text,
+        date: Date.now()
+      };
+      const updated = [newItem, ...filtered].slice(0, 30);
+      try {
+        localStorage.setItem('tg_editor_history', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
+
+  const handleClearHistory = () => {
+    setEditorHistory([]);
+    try {
+      localStorage.removeItem('tg_editor_history');
+    } catch (e) {}
+    setConfirmClearHistory(false);
+  };
+
+  // Immediate Clear with Undo capability
+  const handleClearText = () => {
+    if (!messageText) return;
+    setLastClearedText(messageText);
+    setMessageText('');
+    setError(null);
+    setSuccessInfo(null);
+    setFetchNotice('Editor text cleared.');
+  };
+
+  const handleUndoClear = () => {
+    if (lastClearedText !== null) {
+      setMessageText(lastClearedText);
+      setLastClearedText(null);
+      setFetchNotice('Restored cleared text.');
+    }
+  };
+
+  const handleResetAll = () => {
+    if (messageText) {
+      setLastClearedText(messageText);
+    }
+    setMessageText('');
+    setLinkInput('');
+    setTargetMessageId('');
+    setSelectedRecentId('');
+    setError(null);
+    setSuccessInfo(null);
+    setFetchNotice('Cleared editor and reset message target.');
+  };
+
+  // Combine messages from activePolls, cached polls, and editorHistory
+  const allRecentMessages = React.useMemo(() => {
+    const map = new Map<string, { id: string; label: string; shortType: string; messageId: number; chatId: string; text?: string; date: number }>();
+
+    // 1. From activePolls
+    if (activePolls && activePolls.length > 0) {
+      activePolls.forEach(poll => {
+        if (poll.sentSummaries) {
+          poll.sentSummaries.forEach((s, idx) => {
+            const key = `${s.chatId}-${s.messageId}`;
+            map.set(key, {
+              id: `summary-${poll.id}-${idx}`,
+              label: `💰 Payment Summary (Msg #${s.messageId}) - ${poll.question.slice(0, 26)}`,
+              shortType: 'Payment',
+              messageId: s.messageId,
+              chatId: s.chatId,
+              text: s.text,
+              date: s.timestamp || poll.createdAt
+            });
+          });
+        }
+        if (poll.sentLineups) {
+          poll.sentLineups.forEach((l, idx) => {
+            const optText = poll.options[l.optionIndex]?.text || `Option ${l.optionIndex + 1}`;
+            const key = `${l.chatId}-${l.messageId}`;
+            map.set(key, {
+              id: `lineup-${poll.id}-${idx}`,
+              label: `📋 Lineup (Msg #${l.messageId}) - ${optText.slice(0, 26)}`,
+              shortType: 'Lineup',
+              messageId: l.messageId,
+              chatId: l.chatId,
+              text: l.text,
+              date: l.timestamp || poll.createdAt
+            });
+          });
+        }
+        if (poll.messageId) {
+          const key = `${tgChatId || 'chat'}-${poll.messageId}`;
+          if (!map.has(key)) {
+            map.set(key, {
+              id: `poll-${poll.id}`,
+              label: `🗳️ Poll: "${poll.question.slice(0, 26)}..." (Msg #${poll.messageId})`,
+              shortType: 'Poll',
+              messageId: poll.messageId,
+              chatId: tgChatId,
+              date: poll.createdAt
+            });
+          }
+        }
+      });
+    }
+
+    // 2. Also check localStorage cached polls
+    try {
+      const cachedPolls: ActivePoll[] = [
+        ...JSON.parse(localStorage.getItem('activePolls') || '[]'),
+        ...JSON.parse(localStorage.getItem('deletedPolls') || '[]')
+      ];
+      cachedPolls.forEach(poll => {
+        if (poll.sentSummaries) {
+          poll.sentSummaries.forEach((s, idx) => {
+            const key = `${s.chatId}-${s.messageId}`;
+            if (!map.has(key)) {
+              map.set(key, {
+                id: `cached-summary-${poll.id}-${idx}`,
+                label: `💰 Payment Summary (Msg #${s.messageId}) - ${poll.question.slice(0, 26)}`,
+                shortType: 'Payment',
+                messageId: s.messageId,
+                chatId: s.chatId,
+                text: s.text,
+                date: s.timestamp || poll.createdAt
+              });
+            }
+          });
+        }
+        if (poll.sentLineups) {
+          poll.sentLineups.forEach((l, idx) => {
+            const optText = poll.options[l.optionIndex]?.text || `Option ${l.optionIndex + 1}`;
+            const key = `${l.chatId}-${l.messageId}`;
+            if (!map.has(key)) {
+              map.set(key, {
+                id: `cached-lineup-${poll.id}-${idx}`,
+                label: `📋 Lineup (Msg #${l.messageId}) - ${optText.slice(0, 26)}`,
+                shortType: 'Lineup',
+                messageId: l.messageId,
+                chatId: l.chatId,
+                text: l.text,
+                date: l.timestamp || poll.createdAt
+              });
+            }
+          });
+        }
+      });
+    } catch (e) {}
+
+    // 3. From editorHistory
+    editorHistory.forEach(item => {
+      const key = `${item.chatId}-${item.messageId}`;
+      if (!map.has(key)) {
+        map.set(key, item);
+      }
+    });
+
+    const arr = Array.from(map.values());
+    return arr.sort((a, b) => b.date - a.date);
+  }, [activePolls, editorHistory, tgChatId]);
+
+  const handleSelectRecent = (id: string) => {
+    setSelectedRecentId(id);
+    const item = allRecentMessages.find(m => m.id === id);
+    if (!item) return;
+
+    setTargetChatId(item.chatId);
+    setTargetMessageId(item.messageId);
+
+    const cleanChat = item.chatId.replace(/^-100/, '');
+    setLinkInput(item.chatId.startsWith('@') ? `https://t.me/${item.chatId.slice(1)}/${item.messageId}` : `https://t.me/c/${cleanChat}/${item.messageId}`);
+
+    if (item.text) {
+      setMessageText(item.text);
+      setFetchNotice(`Loaded message #${item.messageId} text. Click "Fetch Live Text" to verify latest live content from Telegram.`);
+    } else {
+      setFetchNotice(`Selected message #${item.messageId}. Click "Fetch Live Text" to load its content from Telegram.`);
+    }
+    setError(null);
+    setSuccessInfo(null);
+  };
 
   // Sync default tgChatId if targetChatId is empty
   useEffect(() => {
@@ -164,9 +371,28 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageE
           }).catch(() => {});
         }
 
-        if (forwardedMsg.text) {
-          setMessageText(forwardedMsg.text);
-          setFetchNotice('Successfully retrieved live message text from Telegram!');
+        const rawText = forwardedMsg.text || forwardedMsg.caption || '';
+        const rawEntities = forwardedMsg.entities || forwardedMsg.caption_entities || [];
+
+        if (rawText) {
+          const htmlText = telegramEntitiesToHtml(rawText, rawEntities);
+          setMessageText(htmlText);
+          const linkCount = rawEntities.filter((e: any) => e.type === 'text_link' || e.type === 'text_mention').length;
+          const totalEntities = rawEntities.length;
+          
+          saveToEditorHistory({
+            messageId: currentMsgId,
+            chatId: currentChat,
+            text: htmlText,
+            label: `Live Msg #${currentMsgId} (${htmlText.replace(/<[^>]*>/g, '').slice(0, 24)}...)`,
+            shortType: 'Live Msg'
+          });
+
+          if (totalEntities > 0) {
+            setFetchNotice(`Successfully retrieved live message with full HTML formatting (${totalEntities} formatted items restored${linkCount > 0 ? `, including ${linkCount} link${linkCount > 1 ? 's' : ''}` : ''})!`);
+          } else {
+            setFetchNotice('Successfully retrieved live message text from Telegram!');
+          }
           return;
         } else if (forwardedMsg.poll) {
           setFetchNotice(`This message is a Telegram Poll ("${forwardedMsg.poll.question}"). Note: Telegram does not allow editing poll text directly via bot API.`);
@@ -241,6 +467,14 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageE
         throw new Error(data.description || 'Failed to edit message on Telegram');
       }
 
+      saveToEditorHistory({
+        messageId: currentMsgId,
+        chatId: currentChat,
+        text: messageText,
+        label: `Edited Msg #${currentMsgId} (${messageText.replace(/<[^>]*>/g, '').slice(0, 24)}...)`,
+        shortType: 'Edited Msg'
+      });
+
       setSuccessInfo({
         messageId: currentMsgId,
         time: new Date().toLocaleTimeString()
@@ -297,6 +531,24 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageE
     }, 0);
   };
 
+  const handleConfirmInsertLink = () => {
+    if (!linkDialog || !linkDialog.value.trim()) {
+      setLinkDialog(null);
+      return;
+    }
+    const val = linkDialog.value.trim();
+    if (linkDialog.type === 'user') {
+      const cleanId = val.replace(/\D/g, '');
+      if (cleanId) {
+        applyFormat(`a href="tg://user?id=${cleanId}"`, 'a');
+      }
+    } else {
+      const url = /^\d+$/.test(val) ? `tg://user?id=${val}` : val;
+      applyFormat(`a href="${url}"`, 'a');
+    }
+    setLinkDialog(null);
+  };
+
   return (
     <div className="flex-1 flex flex-col p-4 md:p-6 space-y-6">
       {/* Top Banner / Explainer */}
@@ -333,8 +585,23 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageE
                 value={linkInput}
                 onChange={handleLinkInputChange}
                 placeholder="e.g. https://t.me/c/1234567890/456 or 456"
-                className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-neutral-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none transition-all placeholder:text-neutral-400"
+                className="w-full text-sm px-3.5 py-2.5 pr-8 rounded-xl border border-neutral-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none transition-all placeholder:text-neutral-400"
               />
+              {linkInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLinkInput('');
+                    setTargetMessageId('');
+                    setSelectedRecentId('');
+                  }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-600 rounded-md transition-colors"
+                  title="Clear link input"
+                  aria-label="Clear link input"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
             <button
               type="button"
@@ -356,6 +623,101 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageE
               )}
             </button>
           </div>
+        </div>
+
+        {/* Recent Bot Messages Dropdown & History */}
+        <div className="pt-2 border-t border-neutral-100 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider flex items-center gap-1.5">
+              <History className="w-3.5 h-3.5 text-indigo-500" />
+              Recent Bot Messages Dropdown
+              {allRecentMessages.length > 0 && (
+                <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+                  {allRecentMessages.length}
+                </span>
+              )}
+            </label>
+            {editorHistory.length > 0 && (
+              confirmClearHistory ? (
+                <div className="flex items-center gap-1.5 text-[11px]">
+                  <span className="text-red-600 font-semibold">Clear?</span>
+                  <button
+                    type="button"
+                    onClick={handleClearHistory}
+                    className="px-2 py-0.5 bg-red-600 text-white rounded font-bold hover:bg-red-700"
+                  >
+                    Yes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmClearHistory(false)}
+                    className="px-1.5 py-0.5 text-neutral-500 hover:text-neutral-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmClearHistory(true)}
+                  className="text-[11px] text-neutral-400 hover:text-red-500 transition-colors"
+                  title="Clear local editor history"
+                >
+                  Clear history
+                </button>
+              )
+            )}
+          </div>
+
+          {allRecentMessages.length > 0 ? (
+            <div className="space-y-2">
+              <select
+                value={selectedRecentId}
+                onChange={(e) => handleSelectRecent(e.target.value)}
+                className="w-full text-xs bg-neutral-50 hover:bg-neutral-100/80 border border-neutral-200 rounded-xl px-3 py-2 text-neutral-800 outline-none focus:border-indigo-400 font-medium"
+              >
+                <option value="">-- Choose a recent bot message to load into editor --</option>
+                {allRecentMessages.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} ({new Date(m.date).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })})
+                  </option>
+                ))}
+              </select>
+
+              {/* Quick jump chips */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                <span className="text-[11px] text-neutral-400 shrink-0 font-medium">Quick pick:</span>
+                {allRecentMessages.slice(0, 5).map(m => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => handleSelectRecent(m.id)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all shrink-0 border truncate max-w-[210px] ${
+                      selectedRecentId === m.id 
+                        ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold' 
+                        : 'bg-neutral-50 hover:bg-neutral-100 border-neutral-200 text-neutral-700'
+                    }`}
+                    title={m.label}
+                  >
+                    #{m.messageId} {m.shortType}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="p-3.5 bg-neutral-50 rounded-xl border border-neutral-200/80 text-xs text-neutral-600 space-y-1">
+              <div className="flex items-center gap-1.5 font-semibold text-neutral-800">
+                <Info className="w-4 h-4 text-indigo-500 shrink-0" />
+                <span>No recent bot messages recorded yet</span>
+              </div>
+              <p className="text-neutral-500 text-[11px] leading-relaxed">
+                When the bot sends <b>Lineups</b> or <b>Payment Summaries</b> from the Polls tab, they will automatically appear here in this dropdown.
+              </p>
+              <p className="text-neutral-500 text-[11px] leading-relaxed">
+                You can also paste any Telegram message link (e.g. <span className="font-mono bg-white px-1 py-0.5 rounded border border-neutral-200">https://t.me/c/...</span>) or message ID into the box above and click <b>Fetch Live Text</b>.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Parsed Meta Details (Editable if needed) */}
@@ -388,9 +750,20 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageE
 
         {/* Notices and Alerts */}
         {fetchNotice && (
-          <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
-            <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <span className="leading-relaxed">{fetchNotice}</span>
+          <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center justify-between gap-2">
+            <div className="flex items-start gap-2">
+              <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <span className="leading-relaxed">{fetchNotice}</span>
+            </div>
+            {lastClearedText !== null && (
+              <button
+                type="button"
+                onClick={handleUndoClear}
+                className="px-2.5 py-1 bg-amber-200 hover:bg-amber-300 text-amber-900 font-bold rounded-lg text-xs transition-colors shrink-0"
+              >
+                Undo
+              </button>
+            )}
           </div>
         )}
 
@@ -470,16 +843,27 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageE
             </button>
             <button
               type="button"
-              onClick={() => {
-                const url = prompt('Enter link URL (e.g. https://...):');
-                if (url) {
-                  applyFormat(`a href="${url}"`, 'a');
-                }
-              }}
-              className="p-1.5 text-neutral-600 hover:text-indigo-600 hover:bg-white rounded-lg border border-transparent hover:border-neutral-200 transition-all"
+              onClick={() => setLinkDialog(prev => prev?.type === 'url' ? null : { type: 'url', value: '' })}
+              className={`p-1.5 rounded-lg border transition-all flex items-center gap-1 ${
+                linkDialog?.type === 'url'
+                  ? 'bg-indigo-50 border-indigo-300 text-indigo-600'
+                  : 'text-neutral-600 hover:text-indigo-600 hover:bg-white border-transparent hover:border-neutral-200'
+              }`}
               title="Add Link <a href='...'>...</a>"
             >
               <LinkIcon className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setLinkDialog(prev => prev?.type === 'user' ? null : { type: 'user', value: '' })}
+              className={`p-1.5 rounded-lg border transition-all flex items-center gap-1 ${
+                linkDialog?.type === 'user'
+                  ? 'bg-indigo-50 border-indigo-300 text-indigo-600'
+                  : 'text-neutral-600 hover:text-indigo-600 hover:bg-white border-transparent hover:border-neutral-200'
+              }`}
+              title="Mention User by ID <a href='tg://user?id=...'>...</a>"
+            >
+              <User className="w-4 h-4" />
             </button>
             <span className="w-px h-4 bg-neutral-200 mx-1" />
             {/* Quick emoji pills */}
@@ -529,6 +913,46 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageE
           </div>
         </div>
 
+        {/* Inline Link / Mention Bar (No window.prompt, 100% iframe-safe) */}
+        {linkDialog && (
+          <div className="px-4 py-2.5 bg-indigo-50 border-b border-indigo-100 flex items-center gap-2 text-xs flex-wrap">
+            <span className="font-bold text-indigo-900 flex items-center gap-1.5">
+              {linkDialog.type === 'url' ? <LinkIcon className="w-3.5 h-3.5 text-indigo-600" /> : <User className="w-3.5 h-3.5 text-indigo-600" />}
+              {linkDialog.type === 'url' ? 'Insert Link URL:' : 'Mention Telegram User ID:'}
+            </span>
+            <input
+              type="text"
+              autoFocus
+              value={linkDialog.value}
+              onChange={(e) => setLinkDialog({ ...linkDialog, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleConfirmInsertLink();
+                } else if (e.key === 'Escape') {
+                  setLinkDialog(null);
+                }
+              }}
+              placeholder={linkDialog.type === 'url' ? 'https://example.com or user ID' : 'e.g. 123456789'}
+              className="px-3 py-1.5 text-xs rounded-lg border border-indigo-200 bg-white outline-none focus:border-indigo-500 w-64 shadow-xs"
+            />
+            <button
+              type="button"
+              onClick={handleConfirmInsertLink}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold transition-colors"
+            >
+              Insert
+            </button>
+            <button
+              type="button"
+              onClick={() => setLinkDialog(null)}
+              className="px-2 py-1.5 text-neutral-500 hover:text-neutral-700 font-medium transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
         {/* Editor Body */}
         <div className="flex-1 flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-neutral-100 min-h-[300px]">
           {/* Text Editor */}
@@ -542,7 +966,7 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageE
                 className="w-full flex-1 min-h-[260px] p-3 text-sm font-mono leading-relaxed rounded-xl border border-neutral-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none resize-none bg-neutral-50/30"
               />
               <div className="flex justify-between items-center text-[11px] text-neutral-400 mt-2 px-1">
-                <span>Supports standard Telegram HTML formatting</span>
+                <span>Supports standard Telegram HTML formatting (<a href="tg://user?id=123" className="text-indigo-500 underline">&lt;a&gt;</a>, &lt;b&gt;, &lt;i&gt;, &lt;code&gt;)</span>
                 <span>{messageText.length} / 4096 characters</span>
               </div>
             </div>
@@ -558,7 +982,7 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageE
               <div className="flex-1 min-h-[260px] p-4 bg-white rounded-xl border border-neutral-200 text-sm leading-relaxed overflow-y-auto shadow-xs">
                 {messageText.trim() ? (
                   <div 
-                    className="whitespace-pre-wrap font-sans text-neutral-900 selection:bg-indigo-100"
+                    className="whitespace-pre-wrap font-sans text-neutral-900 selection:bg-indigo-100 [&_a]:text-indigo-600 [&_a]:underline [&_a]:font-medium [&_a:hover]:text-indigo-800 [&_b]:font-bold [&_strong]:font-bold [&_i]:italic [&_em]:italic [&_u]:underline [&_s]:line-through [&_strike]:line-through [&_del]:line-through [&_code]:bg-neutral-100 [&_code]:text-indigo-700 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:font-mono [&_code]:text-xs [&_pre]:bg-neutral-900 [&_pre]:text-neutral-100 [&_pre]:p-3 [&_pre]:rounded-xl [&_pre]:font-mono [&_pre]:text-xs [&_blockquote]:border-l-4 [&_blockquote]:border-indigo-400 [&_blockquote]:pl-3 [&_blockquote]:my-1.5 [&_blockquote]:text-neutral-700 [&_tg-spoiler]:bg-neutral-800 [&_tg-spoiler]:text-transparent [&_tg-spoiler:hover]:text-inherit [&_tg-spoiler]:rounded [&_tg-spoiler]:px-1 [&_tg-spoiler]:cursor-pointer"
                     dangerouslySetInnerHTML={{ __html: messageText }}
                   />
                 ) : (
@@ -584,18 +1008,24 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId }: TelegramMessageE
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <button
               type="button"
-              onClick={() => {
-                if (confirm('Clear editor text?')) {
-                  setMessageText('');
-                  setError(null);
-                  setSuccessInfo(null);
-                  setFetchNotice(null);
-                }
-              }}
-              className="px-3.5 py-2 text-xs font-semibold text-neutral-600 hover:bg-neutral-200 rounded-xl transition-colors"
+              onClick={handleClearText}
+              disabled={!messageText}
+              className="px-3.5 py-2 text-xs font-semibold text-neutral-600 hover:bg-neutral-200 hover:text-neutral-900 rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+              title="Clear editor text"
             >
-              Clear
+              <Trash2 className="w-3.5 h-3.5" />
+              Clear Text
             </button>
+            {(targetMessageId || linkInput) && (
+              <button
+                type="button"
+                onClick={handleResetAll}
+                className="px-3 py-2 text-xs font-medium text-neutral-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                title="Reset message target link and clear editor"
+              >
+                Reset All
+              </button>
+            )}
             <button
               type="button"
               onClick={handleUpdateMessage}

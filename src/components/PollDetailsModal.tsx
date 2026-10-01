@@ -236,8 +236,10 @@ export function PollDetailsModal({
   const [activeManageId, setActiveManageId] = React.useState<string | null>(null);
   const [targetVoterCounts, setTargetVoterCounts] = React.useState<Record<number, number>>({});
   const [optionPrices, setOptionPrices] = React.useState<Record<number, number>>({});
+  const [confirmRemove, setConfirmRemove] = React.useState(false);
 
   React.useEffect(() => {
+    setConfirmRemove(false);
     if (selectedPollForDetails) {
       const initialPrices: Record<number, number> = {};
       selectedPollForDetails.options.forEach((opt, idx) => {
@@ -557,20 +559,36 @@ export function PollDetailsModal({
           </div>
           <div className="flex items-center gap-1.5">
             {removePoll && (
-              <button 
-                onClick={() => {
-                  if (confirm(`Remove poll "${selectedPollForDetails.question}"? It will be moved to Recently Removed and can be restored.`)) {
-                    removePoll(selectedPollForDetails.id);
-                    setSelectedPollForDetails(null);
-                  }
-                }}
-                className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
-                title="Remove poll"
-                aria-label="Remove poll"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span className="hidden sm:inline">Remove</span>
-              </button>
+              confirmRemove ? (
+                <div className="flex items-center gap-1.5 bg-red-50 p-1.5 rounded-xl border border-red-200 text-xs">
+                  <span className="text-[11px] text-red-700 font-semibold px-1">Remove poll?</span>
+                  <button
+                    onClick={() => {
+                      removePoll(selectedPollForDetails.id);
+                      setSelectedPollForDetails(null);
+                    }}
+                    className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs"
+                  >
+                    Yes
+                  </button>
+                  <button
+                    onClick={() => setConfirmRemove(false)}
+                    className="px-2 py-1 text-neutral-500 hover:text-neutral-800 text-xs font-medium rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={() => setConfirmRemove(true)}
+                  className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
+                  title="Remove poll"
+                  aria-label="Remove poll"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span className="hidden sm:inline">Remove</span>
+                </button>
+              )
             )}
             <button 
               onClick={() => setSelectedPollForDetails(null)}

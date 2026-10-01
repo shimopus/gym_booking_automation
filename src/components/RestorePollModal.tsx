@@ -25,6 +25,8 @@ export function RestorePollModal({
   const [telegramInput, setTelegramInput] = useState('');
   const [telegramError, setTelegramError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [pollConfirmDeleteId, setPollConfirmDeleteId] = useState<string | null>(null);
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -150,31 +152,68 @@ export function RestorePollModal({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                      <button
-                        onClick={() => handleRestoreItem(poll)}
-                        disabled={isRestoring}
-                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
-                      >
-                        {isRestoring ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <RotateCcw className="w-3.5 h-3.5" />
-                        )}
-                        Restore
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm('Permanently delete this poll? This cannot be undone.')) {
-                            onPermanentlyDelete(poll.id);
-                          }
-                        }}
-                        className="p-1.5 text-neutral-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete permanently"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {pollConfirmDeleteId === poll.id ? (
+                      <div className="flex items-center gap-1.5 animate-in fade-in duration-150 bg-red-50 p-1.5 rounded-xl border border-red-200 self-end sm:self-center">
+                        <span className="text-[11px] text-red-700 font-semibold px-1">Delete forever?</span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setIsDeletingId(poll.id);
+                            try {
+                              await onPermanentlyDelete(poll.id);
+                              setSuccessMessage(`Permanently deleted "${poll.question.slice(0, 24)}..."`);
+                              setTimeout(() => setSuccessMessage(''), 3000);
+                            } catch (e: any) {
+                              setTelegramError(`Failed to delete: ${e.message}`);
+                            } finally {
+                              setIsDeletingId(null);
+                              setPollConfirmDeleteId(null);
+                            }
+                          }}
+                          disabled={isDeletingId === poll.id}
+                          className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1 disabled:opacity-50"
+                        >
+                          {isDeletingId === poll.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3 h-3" />
+                          )}
+                          Delete
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPollConfirmDeleteId(null)}
+                          className="px-2 py-1 text-neutral-500 hover:text-neutral-800 text-xs font-medium rounded-lg transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                        <button
+                          type="button"
+                          onClick={() => handleRestoreItem(poll)}
+                          disabled={isRestoring}
+                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          {isRestoring ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          )}
+                          Restore
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPollConfirmDeleteId(poll.id)}
+                          className="p-1.5 text-neutral-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete permanently"
+                          aria-label="Delete permanently"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))
               ) : (
