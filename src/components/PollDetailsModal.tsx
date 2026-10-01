@@ -204,6 +204,7 @@ interface PollDetailsModalProps {
   addVoterAnswer: (pollId: string, voter: VoterInfo) => Promise<void>;
   stopPoll: (pollId: string) => Promise<void>;
   updateVoterOrder: (pollId: string, optionId: number, newVoterIds: number[]) => Promise<void>;
+  removePoll?: (id: string) => void;
 }
 
 export function PollDetailsModal({
@@ -226,7 +227,8 @@ export function PollDetailsModal({
   updateVoterAnswer,
   addVoterAnswer,
   stopPoll,
-  updateVoterOrder
+  updateVoterOrder,
+  removePoll
 }: PollDetailsModalProps) {
   const [showManageVotes, setShowManageVotes] = React.useState(false);
   const [showAddVoter, setShowAddVoter] = React.useState(false);
@@ -553,12 +555,32 @@ export function PollDetailsModal({
               </p>
             </div>
           </div>
-          <button 
-            onClick={() => setSelectedPollForDetails(null)}
-            className="p-2 hover:bg-neutral-100 rounded-full transition-colors"
-          >
-            <X className="w-5 h-5 text-neutral-400" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {removePoll && (
+              <button 
+                onClick={() => {
+                  if (confirm(`Remove poll "${selectedPollForDetails.question}"? It will be moved to Recently Removed and can be restored.`)) {
+                    removePoll(selectedPollForDetails.id);
+                    setSelectedPollForDetails(null);
+                  }
+                }}
+                className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
+                title="Remove poll"
+                aria-label="Remove poll"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span className="hidden sm:inline">Remove</span>
+              </button>
+            )}
+            <button 
+              onClick={() => setSelectedPollForDetails(null)}
+              className="p-2 hover:bg-neutral-100 rounded-full transition-colors text-neutral-400 hover:text-neutral-600"
+              title="Close modal"
+              aria-label="Close modal"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
         
         <div className="p-6 max-h-[70vh] overflow-y-auto">

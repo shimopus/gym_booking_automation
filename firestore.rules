@@ -16,6 +16,14 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    match /deletedPolls/{pollId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /botMessages/{messageId} {
+      allow read, write: if isAdmin();
+    }
+
     match /rawUpdates/{updateId} {
       allow read, write: if isAdmin();
     }

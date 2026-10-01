@@ -2,7 +2,15 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { collection, doc, onSnapshot, query, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { ActivePoll, PollOption, VoterInfo, SentSummary, SentLineup } from '../types';
-import { savePollToFirebase, deletePollFromFirebase, saveLastUpdateId, saveRawUpdatesToFirebase } from '../services/firebaseService';
+import { 
+  savePollToFirebase, 
+  deletePollFromFirebase, 
+  softDeletePollToFirebase, 
+  restorePollInFirebase, 
+  permanentlyDeletePollFromFirebase, 
+  saveLastUpdateId, 
+  saveRawUpdatesToFirebase 
+} from '../services/firebaseService';
 
 export function useTelegram(user: any, isAuthReady: boolean) {
   const [tgBotToken, setTgBotToken] = useState('');
@@ -10,6 +18,9 @@ export function useTelegram(user: any, isAuthReady: boolean) {
   const [defaultHourlyPrice, setDefaultHourlyPrice] = useState(110);
   const [lastUpdateId, setLastUpdateId] = useState(0);
   const [activePolls, setActivePolls] = useState<ActivePoll[]>([]);
+  const [deletedPolls, setDeletedPolls] = useState<ActivePoll[]>([]);
+  const [lastRemovedPoll, setLastRemovedPoll] = useState<ActivePoll | null>(null);
+  const [isRestoringPoll, setIsRestoringPoll] = useState(false);
   const [isRefreshingPolls, setIsRefreshingPolls] = useState(false);
   const [isSendingPoll, setIsSendingPoll] = useState(false);
   const [isSendingLineup, setIsSendingLineup] = useState(false);
@@ -28,6 +39,34 @@ export function useTelegram(user: any, isAuthReady: boolean) {
       setActivePolls(polls);
     });
 
+    const unsubscribeDeletedPolls = onSnapshot(collection(db, 'deletedPolls'), (snapshot) => {
+      const dPolls = snapshot.docs.map(doc => doc.data() as ActivePoll);
+      
+      // Also inspect localStorage to see if there are any cached polls that were removed
+      let localDeleted: ActivePoll[] = [];
+      try {
+        const raw = localStorage.getItem('deletedPolls');
+        if (raw) localDeleted = JSON.parse(raw);
+      } catch (e) {}
+
+      let localActive: ActivePoll[] = [];
+      try {
+        const raw = localStorage.getItem('activePolls');
+        if (raw) localActive = JSON.parse(raw);
+      } catch (e) {}
+
+      // Combine Firestore deleted polls with any cached polls
+      const combined = [...dPolls];
+      [...localDeleted, ...localActive].forEach(lp => {
+        if (!combined.some(c => c.id === lp.id)) {
+          combined.push(lp);
+        }
+      });
+
+      combined.sort((a, b) => (b.deletedAt || b.createdAt) - (a.deletedAt || a.createdAt));
+      setDeletedPolls(combined);
+    });
+
     const unsubscribeSettings = onSnapshot(doc(db, 'settings', 'telegram'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -43,6 +82,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
 
     return () => {
       unsubscribePolls();
+      unsubscribeDeletedPolls();
       unsubscribeSettings();
     };
   }, [isAuthReady, user]);
@@ -345,7 +385,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     }
   };
 
-  const updateUserPayment = async (pollId: string, summaryIndex: number, userIndex: number, updates: { total?: number; name?: string }) => {
+  const updateUserPayment = async (pollId: string, summaryIndex: number, userIndex: number, updates: { total?: number; name?: string; username?: string }) => {
     if (!tgBotToken) return;
     
     const poll = activePolls.find(p => p.id === pollId);
@@ -531,9 +571,171 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     } catch (err) { console.error('Failed to update Telegram message:', err); }
   };
 
-  const removePoll = (id: string) => {
+  const removePoll = async (id: string) => {
+    const pollToRemove = activePolls.find(p => p.id === id);
+    if (!pollToRemove) return;
+
+    setLastRemovedPoll(pollToRemove);
     setActivePolls(prev => prev.filter(p => p.id !== id));
-    deletePollFromFirebase(id);
+    
+    // Save to deletedPolls in local storage as a safety fallback
+    try {
+      const existing = JSON.parse(localStorage.getItem('deletedPolls') || '[]');
+      const updated = [pollToRemove, ...existing.filter((p: any) => p.id !== id)];
+      localStorage.setItem('deletedPolls', JSON.stringify(updated));
+    } catch (e) {}
+
+    await softDeletePollToFirebase(pollToRemove);
+  };
+
+  const restorePoll = async (poll: ActivePoll) => {
+    setIsRestoringPoll(true);
+    try {
+      await restorePollInFirebase(poll);
+      
+      // Update local storage deletedPolls
+      try {
+        const existing = JSON.parse(localStorage.getItem('deletedPolls') || '[]');
+        const updated = existing.filter((p: any) => p.id !== poll.id);
+        localStorage.setItem('deletedPolls', JSON.stringify(updated));
+      } catch (e) {}
+
+      // Add to active polls
+      setActivePolls(prev => {
+        if (prev.some(p => p.id === poll.id)) return prev;
+        const next = [poll, ...prev];
+        next.sort((a, b) => b.createdAt - a.createdAt);
+        return next;
+      });
+
+      setDeletedPolls(prev => prev.filter(p => p.id !== poll.id));
+      if (lastRemovedPoll?.id === poll.id) {
+        setLastRemovedPoll(null);
+      }
+
+      await refreshPolls();
+      return true;
+    } catch (err: any) {
+      console.error('Failed to restore poll:', err);
+      alert(`Failed to restore poll: ${err.message}`);
+      return false;
+    } finally {
+      setIsRestoringPoll(false);
+    }
+  };
+
+  const permanentlyDeletePoll = async (id: string) => {
+    try {
+      await permanentlyDeletePollFromFirebase(id);
+      setDeletedPolls(prev => prev.filter(p => p.id !== id));
+      try {
+        const existing = JSON.parse(localStorage.getItem('deletedPolls') || '[]');
+        const updated = existing.filter((p: any) => p.id !== id);
+        localStorage.setItem('deletedPolls', JSON.stringify(updated));
+      } catch (e) {}
+    } catch (err) {
+      console.error('Failed to permanently delete poll', err);
+    }
+  };
+
+  const restorePollFromTelegram = async (messageIdOrLink: string) => {
+    if (!tgBotToken || !tgChatId) {
+      alert('Telegram bot token or chat ID is missing. Please check your settings.');
+      return false;
+    }
+
+    setIsRestoringPoll(true);
+    try {
+      // Parse message ID from link or input
+      let targetMessageId: number;
+      const cleanInput = messageIdOrLink.trim();
+      if (cleanInput.includes('/')) {
+        const segments = cleanInput.split('/').filter(Boolean);
+        const lastSeg = segments[segments.length - 1];
+        targetMessageId = parseInt(lastSeg, 10);
+      } else {
+        targetMessageId = parseInt(cleanInput, 10);
+      }
+
+      if (isNaN(targetMessageId) || targetMessageId <= 0) {
+        throw new Error('Please enter a valid Telegram message ID (e.g. 123) or message link.');
+      }
+
+      // Forward message to inspect its poll data
+      const forwardRes = await fetch(`https://api.telegram.org/bot${tgBotToken}/forwardMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: tgChatId,
+          from_chat_id: tgChatId,
+          message_id: targetMessageId,
+          disable_notification: true
+        })
+      });
+
+      if (!forwardRes.ok) {
+        const errJson = await forwardRes.json();
+        throw new Error(errJson.description || 'Could not find message in chat. Check if the message ID or link is correct.');
+      }
+
+      const forwardData = await forwardRes.json();
+      const forwardedMsg = forwardData.result;
+
+      // Delete the forwarded message copy immediately
+      if (forwardedMsg?.message_id) {
+        fetch(`https://api.telegram.org/bot${tgBotToken}/deleteMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: tgChatId,
+            message_id: forwardedMsg.message_id
+          })
+        }).catch(() => {});
+      }
+
+      if (!forwardedMsg?.poll) {
+        throw new Error(`The message at ID ${targetMessageId} is not a poll! Please make sure to link a poll message.`);
+      }
+
+      const tgPoll = forwardedMsg.poll;
+
+      const restoredPoll: ActivePoll = {
+        id: tgPoll.id,
+        messageId: targetMessageId,
+        question: tgPoll.question,
+        options: tgPoll.options.map((opt: any) => ({
+          text: opt.text,
+          voter_count: opt.voter_count,
+          price2h: defaultHourlyPrice * 2
+        })),
+        createdAt: forwardedMsg.forward_date ? forwardedMsg.forward_date * 1000 : Date.now(),
+        isStopped: tgPoll.is_closed,
+        totalVoterCount: tgPoll.total_voter_count,
+        voterAnswers: {}
+      };
+
+      await savePollToFirebase(restoredPoll);
+      
+      // Update local state
+      setActivePolls(prev => {
+        const filtered = prev.filter(p => p.id !== restoredPoll.id);
+        const next = [restoredPoll, ...filtered];
+        next.sort((a, b) => b.createdAt - a.createdAt);
+        return next;
+      });
+
+      // Remove from deletedPolls if it was there
+      setDeletedPolls(prev => prev.filter(p => p.id !== restoredPoll.id));
+
+      await refreshPolls();
+      return true;
+    } catch (err: any) {
+      console.error('Failed to restore from Telegram:', err);
+      alert(`Error restoring poll: ${err.message}`);
+      return false;
+    } finally {
+      setIsRestoringPoll(false);
+    }
   };
 
   const handleSaveEditedLineup = async (poll: ActivePoll, editingLineup: { index: number; text: string }) => {
@@ -950,6 +1152,13 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     addSummaryUser,
     removeSummaryUser,
     removePoll,
+    deletedPolls,
+    lastRemovedPoll,
+    setLastRemovedPoll,
+    isRestoringPoll,
+    restorePoll,
+    permanentlyDeletePoll,
+    restorePollFromTelegram,
     handleSaveEditedLineup,
     handleSendFinalLineups,
     prepareLineups,

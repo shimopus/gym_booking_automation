@@ -1,6 +1,6 @@
 import { db, auth } from '../firebase';
 import { collection, doc, setDoc, deleteDoc, addDoc, query, where, getDocs, writeBatch } from 'firebase/firestore';
-import { ActivePoll } from '../types';
+import { ActivePoll, BotMessage } from '../types';
 
 export const savePollToFirebase = async (poll: ActivePoll) => {
   if (!auth.currentUser) return;
@@ -49,11 +49,41 @@ export const saveRawUpdatesToFirebase = async (updates: any[]) => {
   }
 };
 
-export const deletePollFromFirebase = async (pollId: string) => {
+export const softDeletePollToFirebase = async (poll: ActivePoll) => {
   if (!auth.currentUser) return;
   try {
-    // Delete the poll document
+    const cleanPoll = JSON.parse(JSON.stringify(poll));
+    cleanPoll.deletedAt = Date.now();
+    await setDoc(doc(db, 'deletedPolls', poll.id), cleanPoll);
+    await deleteDoc(doc(db, 'polls', poll.id));
+  } catch (err) {
+    console.error('Failed to soft delete poll in Firebase', err);
+  }
+};
+
+export const restorePollInFirebase = async (poll: ActivePoll) => {
+  if (!auth.currentUser) return;
+  try {
+    const cleanPoll = JSON.parse(JSON.stringify(poll));
+    delete cleanPoll.deletedAt;
+    delete cleanPoll.totalVoterCount;
+    if (cleanPoll.options) {
+      cleanPoll.options.forEach((opt: any) => {
+        delete opt.voter_count;
+      });
+    }
+    await setDoc(doc(db, 'polls', poll.id), cleanPoll);
+    await deleteDoc(doc(db, 'deletedPolls', poll.id));
+  } catch (err) {
+    console.error('Failed to restore poll in Firebase', err);
+  }
+};
+
+export const permanentlyDeletePollFromFirebase = async (pollId: string) => {
+  if (!auth.currentUser) return;
+  try {
     await deleteDoc(doc(db, 'polls', pollId));
+    await deleteDoc(doc(db, 'deletedPolls', pollId));
 
     // Cleanup rawUpdates for this poll
     const q = query(collection(db, 'rawUpdates'), where('pollId', '==', pollId));
@@ -67,7 +97,17 @@ export const deletePollFromFirebase = async (pollId: string) => {
       await batch.commit();
     }
   } catch (err) {
-    console.error('Failed to delete poll and its updates from Firebase', err);
+    console.error('Failed to permanently delete poll from Firebase', err);
+  }
+};
+
+export const deletePollFromFirebase = async (pollId: string, pollData?: ActivePoll) => {
+  if (!auth.currentUser) return;
+  if (pollData) {
+    await softDeletePollToFirebase(pollData);
+  } else {
+    // If no full object passed, delete from polls
+    await deleteDoc(doc(db, 'polls', pollId));
   }
 };
 
@@ -79,3 +119,23 @@ export const saveLastUpdateId = async (id: number) => {
     console.error('Failed to save lastUpdateId', err);
   }
 };
+
+export const saveBotMessageToFirebase = async (msg: BotMessage) => {
+  if (!auth.currentUser) return;
+  try {
+    const cleanMsg = JSON.parse(JSON.stringify(msg));
+    await setDoc(doc(db, 'botMessages', msg.id || String(msg.messageId)), cleanMsg);
+  } catch (err) {
+    console.error('Failed to save bot message in Firebase', err);
+  }
+};
+
+export const deleteBotMessageFromFirebase = async (messageId: string) => {
+  if (!auth.currentUser) return;
+  try {
+    await deleteDoc(doc(db, 'botMessages', messageId));
+  } catch (err) {
+    console.error('Failed to delete bot message from Firebase', err);
+  }
+};
+

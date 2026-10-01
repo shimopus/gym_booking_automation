@@ -42,6 +42,19 @@ export interface SentLineup {
   timestamp: number;
 }
 
+export interface BotMessage {
+  id: string;
+  messageId: number;
+  chatId: string;
+  text: string;
+  type: 'lineup' | 'summary' | 'custom' | 'other';
+  pollId?: string;
+  pollQuestion?: string;
+  optionIndex?: number;
+  timestamp: number;
+  updatedAt?: number;
+}
+
 export interface ActivePoll {
   id: string;
   messageId: number;
@@ -49,6 +62,7 @@ export interface ActivePoll {
   options: PollOption[];
   totalVoterCount?: number;
   createdAt: number;
+  deletedAt?: number;
   isStopped?: boolean;
   voterAnswers?: { [userId: number]: VoterInfo };
   optionVoterOrder?: { [optionId: number]: number[] };

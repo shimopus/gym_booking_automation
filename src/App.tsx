@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Plus, X, Loader2, CalendarDays } from 'lucide-react';
+import { Send, Plus, X, Loader2, CalendarDays, Edit3 } from 'lucide-react';
 import { auth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { ActivePoll } from './types';
@@ -9,6 +9,7 @@ import { Header } from './components/Header';
 import { ActivePollsTab } from './components/ActivePollsTab';
 import { PollDetailsModal } from './components/PollDetailsModal';
 import { LineupPreviewModal } from './components/LineupPreviewModal';
+import { TelegramMessageEditor } from './components/TelegramMessageEditor';
 import { useTelegram } from './hooks/useTelegram';
 import { useMigration } from './hooks/useMigration';
 
@@ -23,7 +24,7 @@ export interface StructuredOption {
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [activeTab, setActiveTab] = useState<'polls' | 'create'>('polls');
+  const [activeTab, setActiveTab] = useState<'polls' | 'create' | 'editor'>('polls');
   const [showSettings, setShowSettings] = useState(false);
   const [pollQuestion, setPollQuestion] = useState("Кто готов закоммититься на зал - голосуем! 🏐");
   
@@ -63,6 +64,13 @@ export default function App() {
     addSummaryUser,
     removeSummaryUser,
     removePoll,
+    deletedPolls,
+    lastRemovedPoll,
+    setLastRemovedPoll,
+    isRestoringPoll,
+    restorePoll,
+    permanentlyDeletePoll,
+    restorePollFromTelegram,
     handleSaveEditedLineup,
     handleSendFinalLineups,
     prepareLineups,
@@ -194,17 +202,35 @@ export default function App() {
                 <Plus className="w-4 h-4" />
                 Create Poll
               </button>
+              <button
+                onClick={() => setActiveTab('editor')}
+                className={`flex-1 py-4 text-sm font-bold transition-all border-b-2 flex items-center justify-center gap-2 ${
+                  activeTab === 'editor' 
+                    ? 'border-indigo-600 text-indigo-600 bg-white' 
+                    : 'border-transparent text-neutral-400 hover:text-neutral-600 hover:bg-neutral-50'
+                }`}
+              >
+                <Edit3 className="w-4 h-4" />
+                Message Editor
+              </button>
             </div>
 
             {activeTab === 'polls' ? (
               <ActivePollsTab
                 activePolls={activePolls}
+                deletedPolls={deletedPolls}
                 refreshPolls={refreshPolls}
                 isRefreshingPolls={isRefreshingPolls}
                 setSelectedPollForDetails={setSelectedPollForDetails}
                 removePoll={removePoll}
+                lastRemovedPoll={lastRemovedPoll}
+                onRestorePoll={restorePoll}
+                onPermanentlyDelete={permanentlyDeletePoll}
+                onRestoreFromTelegram={restorePollFromTelegram}
+                isRestoringPoll={isRestoringPoll}
+                onDismissLastRemoved={() => setLastRemovedPoll(null)}
               />
-            ) : (
+            ) : activeTab === 'create' ? (
               <div className="flex-1 p-6 flex flex-col gap-6">
                 <div>
                   <label className="block text-sm font-medium text-neutral-800 mb-1">Poll Question</label>
@@ -363,6 +389,11 @@ export default function App() {
                   )}
                 </div>
               </div>
+            ) : (
+              <TelegramMessageEditor
+                tgBotToken={tgBotToken}
+                tgChatId={tgChatId}
+              />
             )}
           </div>
         </div>
@@ -401,6 +432,7 @@ export default function App() {
         addVoterAnswer={addVoterAnswer}
         stopPoll={stopPoll}
         updateVoterOrder={updateVoterOrder}
+        removePoll={removePoll}
       />
 
       <LineupPreviewModal 

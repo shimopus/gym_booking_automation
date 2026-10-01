@@ -101,12 +101,37 @@
         "tgBotToken": { "type": "string" },
         "tgChatId": { "type": "string" }
       }
+    },
+    "BotMessage": {
+      "title": "BotMessage",
+      "description": "Messages sent or edited by the bot",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "messageId": { "type": "number" },
+        "chatId": { "type": "string" },
+        "text": { "type": "string" },
+        "type": { "type": "string" },
+        "pollId": { "type": "string" },
+        "pollQuestion": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["messageId", "chatId", "text", "timestamp"]
     }
   },
   "firestore": {
     "polls/{pollId}": {
       "schema": { "$ref": "ActivePoll" },
       "description": "Active polls"
+    },
+    "deletedPolls/{pollId}": {
+      "schema": { "$ref": "ActivePoll" },
+      "description": "Deleted or archived polls that can be restored"
+    },
+    "botMessages/{messageId}": {
+      "schema": { "$ref": "BotMessage" },
+      "description": "Messages sent or edited by the bot"
     },
     "rawUpdates/{updateId}": {
       "schema": { "$ref": "RawUpdate" },
