@@ -30,9 +30,10 @@ interface TelegramMessageEditorProps {
   tgBotToken: string;
   tgChatId: string;
   activePolls?: ActivePoll[];
+  onMessageUpdated?: (chatId: string, messageId: number, newText: string) => void;
 }
 
-export function TelegramMessageEditor({ tgBotToken, tgChatId, activePolls }: TelegramMessageEditorProps) {
+export function TelegramMessageEditor({ tgBotToken, tgChatId, activePolls, onMessageUpdated }: TelegramMessageEditorProps) {
   const [linkInput, setLinkInput] = useState('');
   const [targetChatId, setTargetChatId] = useState(tgChatId || '');
   const [targetMessageId, setTargetMessageId] = useState<number | ''>('');
@@ -474,6 +475,8 @@ export function TelegramMessageEditor({ tgBotToken, tgChatId, activePolls }: Tel
         label: `Edited Msg #${currentMsgId} (${messageText.replace(/<[^>]*>/g, '').slice(0, 24)}...)`,
         shortType: 'Edited Msg'
       });
+
+      onMessageUpdated?.(currentChat, currentMsgId, messageText);
 
       setSuccessInfo({
         messageId: currentMsgId,

@@ -194,6 +194,10 @@ interface PollDetailsModalProps {
   setEditingLineup: (lineup: { index: number; text: string } | null) => void;
   handleSaveEditedLineup: () => void;
   isSavingLineup: boolean;
+  editingSummary?: { index: number; text: string } | null;
+  setEditingSummary?: (summary: { index: number; text: string } | null) => void;
+  handleSaveEditedSummary?: () => void;
+  isSavingSummary?: boolean;
   showPollDetails: boolean;
   setShowPollDetails: (show: boolean) => void;
   prepareLineups: (poll: ActivePoll, targetVoterCounts: Record<number, number>) => void;
@@ -218,6 +222,10 @@ export function PollDetailsModal({
   setEditingLineup,
   handleSaveEditedLineup,
   isSavingLineup,
+  editingSummary,
+  setEditingSummary,
+  handleSaveEditedSummary,
+  isSavingSummary,
   showPollDetails,
   setShowPollDetails,
   prepareLineups,
@@ -622,6 +630,49 @@ export function PollDetailsModal({
                         </span>
                       </div>
                     </div>
+
+                    {editingSummary && editingSummary.index === sIdx && setEditingSummary && handleSaveEditedSummary ? (
+                      <div className="space-y-3 mb-4">
+                        <textarea
+                          value={editingSummary.text}
+                          onChange={(e) => setEditingSummary({ ...editingSummary, text: e.target.value })}
+                          rows={8}
+                          className="w-full p-3 text-sm font-mono bg-white border border-neutral-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all resize-none"
+                        />
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => setEditingSummary(null)}
+                            className="px-4 py-1.5 text-xs font-bold text-neutral-600 bg-white border border-neutral-200 rounded-lg hover:bg-neutral-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={handleSaveEditedSummary}
+                            disabled={isSavingSummary}
+                            className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                          >
+                            {isSavingSummary ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckSquare className="w-3 h-3" />}
+                            Save & Update
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 mb-4">
+                        <div className="p-3 bg-white border border-neutral-100 rounded-xl shadow-sm">
+                          <pre className="text-xs font-mono text-neutral-700 whitespace-pre-wrap font-sans" dangerouslySetInnerHTML={{ __html: summary.text.replace(/\n/g, '<br/>') }} />
+                        </div>
+                        {setEditingSummary && (
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => setEditingSummary({ index: sIdx, text: summary.text })}
+                              className="text-xs font-bold text-indigo-600 hover:text-indigo-700"
+                            >
+                              Edit Message / Title
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <div className="space-y-2 mb-4">
                       {summary.users.map((user, uIdx) => (
                         <div key={uIdx} className="flex items-center justify-between bg-white p-3 rounded-xl border border-neutral-100 shadow-sm">

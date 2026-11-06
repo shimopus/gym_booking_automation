@@ -11,6 +11,11 @@ import {
   saveLastUpdateId, 
   saveRawUpdatesToFirebase 
 } from '../services/firebaseService';
+import { 
+  extractSummaryHeaderAndFooter, 
+  toggleUserPaidInSummaryText, 
+  buildSummaryMessageText 
+} from '../utils/summaryFormat';
 
 export function useTelegram(user: any, isAuthReady: boolean) {
   const [tgBotToken, setTgBotToken] = useState('');
@@ -23,8 +28,10 @@ export function useTelegram(user: any, isAuthReady: boolean) {
   const [isRestoringPoll, setIsRestoringPoll] = useState(false);
   const [isRefreshingPolls, setIsRefreshingPolls] = useState(false);
   const [isSendingPoll, setIsSendingPoll] = useState(false);
+  const [sendPollError, setSendPollError] = useState<string | null>(null);
   const [isSendingLineup, setIsSendingLineup] = useState(false);
   const [isSavingLineup, setIsSavingLineup] = useState(false);
+  const [isSavingSummary, setIsSavingSummary] = useState(false);
   const [lineupPreviews, setLineupPreviews] = useState<{ optionIndex: number; text: string; users?: any[] }[] | null>(null);
   const originalTgBotTokenRef = useRef('');
 
@@ -112,11 +119,19 @@ export function useTelegram(user: any, isAuthReady: boolean) {
 
 
   const handleSendPoll = async (pollQuestion: string, pollOptions: Partial<PollOption>[], isBulkPoll: boolean) => {
-    if (!tgBotToken || !tgChatId) return;
+    if (!tgBotToken || !tgChatId) return false;
     
     setIsSendingPoll(true);
+    setSendPollError(null);
     try {
-      const response = await fetch(`https://api.telegram.org/bot${tgBotToken}/sendPoll`, {
+      const validOptions = pollOptions.filter(opt => opt.text?.trim());
+      if (validOptions.length === 0) {
+        throw new Error('Please add at least one poll option');
+      }
+
+      const optionsToSend = validOptions.map(opt => opt.text || '');
+
+      let response = await fetch(`https://api.telegram.org/bot${tgBotToken}/sendPoll`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -124,19 +139,39 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         body: JSON.stringify({
           chat_id: tgChatId,
           question: pollQuestion,
-          options: pollOptions.filter(opt => opt.text?.trim()).map(opt => opt.text || ''),
+          options: optionsToSend,
           is_anonymous: false,
           allows_multiple_answers: isBulkPoll
         })
       });
 
+      // If Telegram's API rejects a single option with "at least 2 options", gracefully fallback
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.description || 'Failed to send poll');
+        if (optionsToSend.length === 1 && errorData.description?.toLowerCase().includes('at least 2 options')) {
+          const fallbackOptions = [...optionsToSend, "Can't make it ❌"];
+          response = await fetch(`https://api.telegram.org/bot${tgBotToken}/sendPoll`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              chat_id: tgChatId,
+              question: pollQuestion,
+              options: fallbackOptions,
+              is_anonymous: false,
+              allows_multiple_answers: isBulkPoll
+            })
+          });
+        }
+
+        if (!response.ok) {
+          const secondError = await response.json().catch(() => ({}));
+          throw new Error(secondError.description || errorData.description || 'Failed to send poll');
+        }
       }
 
       const data = await response.json();
-      const finalOptions = pollOptions.filter(opt => opt.text?.trim());
 
       const newPoll: ActivePoll = {
         id: data.result.poll.id,
@@ -144,7 +179,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         question: data.result.poll.question,
         options: data.result.poll.options.map((o: any, idx: number) => ({ 
           text: o.text, 
-          price2h: finalOptions[idx]?.price2h
+          price2h: validOptions[idx]?.price2h
         })),
         createdAt: Date.now(),
         isStopped: false,
@@ -155,7 +190,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
       return true;
     } catch (err: any) {
       console.error('Telegram API Error:', err);
-      alert(`Failed to send poll: ${err.message}`);
+      setSendPollError(err.message || 'Failed to send poll');
       return false;
     } finally {
       setIsSendingPoll(false);
@@ -336,25 +371,19 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         const nextUsers = [...nextSummaries[summaryIndex].users];
         nextUsers[userIndex] = { ...nextUsers[userIndex], paid: newPaidStatus };
         
-        // Rebuild the text
-        let newText = `<b>💰 Summary Payments</b>\nДеньги переводим по Zelle: 6692045921\n\n`;
-        nextUsers.forEach(u => {
-          const mention = u.username 
-            ? `@${u.username}` 
-            : `<a href="tg://user?id=${u.userId}">${u.name}</a>`;
-          const displayName = u.username ? `${u.name} (${mention})` : mention;
-          const statusEmoji = u.paid ? ' ✅' : ' ❌';
-          newText += `${displayName}: <b>$${u.total.toFixed(2)}</b>${statusEmoji}\n`;
-        });
-        
-        if (summary.text.includes('⚠️ Note:')) {
-           newText += `\n<i>⚠️ Note: Some sessions had missing price data. Totals might be incomplete.</i>`;
+        // Rebuild or update the text preserving custom title and header
+        let newText = toggleUserPaidInSummaryText(summary.text, user, newPaidStatus);
+        if (!newText) {
+          newText = buildSummaryMessageText(summary.text, nextUsers, summary.header);
         }
+
+        const { header } = extractSummaryHeaderAndFooter(newText, nextUsers);
         
         nextSummaries[summaryIndex] = { 
           ...nextSummaries[summaryIndex], 
           users: nextUsers,
-          text: newText 
+          text: newText,
+          header: header || summary.header
         };
         
         return { ...p, sentSummaries: nextSummaries };
@@ -418,29 +447,15 @@ export function useTelegram(user: any, isAuthReady: boolean) {
           nextUsers[userIndex] = { ...nextUsers[userIndex], ...updates };
         }
         
-        // Rebuild the text
-        let newText = `<b>💰 Summary Payments</b>\nДеньги переводим по Zelle: 6692045921\n\n`;
-        nextUsers.forEach(u => {
-          let mention = u.name;
-          if (u.username) {
-            mention = `@${u.username}`;
-          } else if (u.userId) {
-            mention = `<a href="tg://user?id=${u.userId}">${u.name}</a>`;
-          }
-          
-          const displayName = u.username ? `${u.name} (${mention})` : mention;
-          const statusEmoji = u.paid ? ' ✅' : ' ❌';
-          newText += `${displayName}: <b>$${u.total.toFixed(2)}</b>${statusEmoji}\n`;
-        });
-        
-        if (summary.text.includes('⚠️ Note:')) {
-           newText += `\n<i>⚠️ Note: Some sessions had missing price data. Totals might be incomplete.</i>`;
-        }
+        // Rebuild preserving custom title and header
+        const newText = buildSummaryMessageText(summary.text, nextUsers, summary.header);
+        const { header } = extractSummaryHeaderAndFooter(newText, nextUsers);
         
         nextSummaries[summaryIndex] = { 
           ...nextSummaries[summaryIndex], 
           users: nextUsers,
-          text: newText 
+          text: newText,
+          header: header || summary.header
         };
         
         return { ...p, sentSummaries: nextSummaries };
@@ -484,24 +499,15 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         const nextSummaries = [...(p.sentSummaries || [])];
         const nextUsers = [...nextSummaries[summaryIndex].users, newUser];
         
-        let newText = `<b>💰 Summary Payments</b>\nДеньги переводим по Zelle: 6692045921\n\n`;
-        nextUsers.forEach(u => {
-          let mention = u.name;
-          if (u.username) {
-            mention = `@${u.username}`;
-          } else if (u.userId) {
-            mention = `<a href="tg://user?id=${u.userId}">${u.name}</a>`;
-          }
-          const displayName = u.username ? `${u.name} (${mention})` : mention;
-          const statusEmoji = u.paid ? ' ✅' : ' ❌';
-          newText += `${displayName}: <b>$${u.total.toFixed(2)}</b>${statusEmoji}\n`;
-        });
+        const newText = buildSummaryMessageText(summary.text, nextUsers, summary.header);
+        const { header } = extractSummaryHeaderAndFooter(newText, nextUsers);
         
-        if (summary.text.includes('⚠️ Note:')) {
-           newText += `\n<i>⚠️ Note: Some sessions had missing price data. Totals might be incomplete.</i>`;
-        }
-        
-        nextSummaries[summaryIndex] = { ...nextSummaries[summaryIndex], users: nextUsers, text: newText };
+        nextSummaries[summaryIndex] = { 
+          ...nextSummaries[summaryIndex], 
+          users: nextUsers, 
+          text: newText,
+          header: header || summary.header
+        };
         return { ...p, sentSummaries: nextSummaries };
       }
       return p;
@@ -533,24 +539,15 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         const nextSummaries = [...(p.sentSummaries || [])];
         const nextUsers = nextSummaries[summaryIndex].users.filter((_, idx) => idx !== userIndex);
         
-        let newText = `<b>💰 Summary Payments</b>\nДеньги переводим по Zelle: 6692045921\n\n`;
-        nextUsers.forEach(u => {
-          let mention = u.name;
-          if (u.username) {
-            mention = `@${u.username}`;
-          } else if (u.userId) {
-            mention = `<a href="tg://user?id=${u.userId}">${u.name}</a>`;
-          }
-          const displayName = u.username ? `${u.name} (${mention})` : mention;
-          const statusEmoji = u.paid ? ' ✅' : ' ❌';
-          newText += `${displayName}: <b>$${u.total.toFixed(2)}</b>${statusEmoji}\n`;
-        });
+        const newText = buildSummaryMessageText(summary.text, nextUsers, summary.header);
+        const { header } = extractSummaryHeaderAndFooter(newText, nextUsers);
         
-        if (summary.text.includes('⚠️ Note:')) {
-           newText += `\n<i>⚠️ Note: Some sessions had missing price data. Totals might be incomplete.</i>`;
-        }
-        
-        nextSummaries[summaryIndex] = { ...nextSummaries[summaryIndex], users: nextUsers, text: newText };
+        nextSummaries[summaryIndex] = { 
+          ...nextSummaries[summaryIndex], 
+          users: nextUsers, 
+          text: newText,
+          header: header || summary.header
+        };
         return { ...p, sentSummaries: nextSummaries };
       }
       return p;
@@ -739,7 +736,7 @@ export function useTelegram(user: any, isAuthReady: boolean) {
   };
 
   const handleSaveEditedLineup = async (poll: ActivePoll, editingLineup: { index: number; text: string }) => {
-    if (!tgBotToken || !poll.sentLineups) return;
+    if (!tgBotToken || !poll.sentLineups) return false;
     
     setIsSavingLineup(true);
     try {
@@ -778,10 +775,108 @@ export function useTelegram(user: any, isAuthReady: boolean) {
       return true;
     } catch (err: any) {
       console.error('Failed to edit lineup:', err);
-      alert(`Error: ${err.message}`);
       return false;
     } finally {
       setIsSavingLineup(false);
+    }
+  };
+
+  const handleSaveEditedSummary = async (poll: ActivePoll, editingSummary: { index: number; text: string }) => {
+    if (!tgBotToken || !poll.sentSummaries || !poll.sentSummaries[editingSummary.index]) return false;
+    
+    setIsSavingSummary(true);
+    try {
+      const summary = poll.sentSummaries[editingSummary.index];
+      
+      const response = await fetch(`https://api.telegram.org/bot${tgBotToken}/editMessageText`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: summary.chatId,
+          message_id: summary.messageId,
+          text: editingSummary.text,
+          parse_mode: 'HTML'
+        })
+      });
+      
+      if (!response.ok) {
+        const data = await response.json();
+        if (!data.description?.includes('message is not modified')) {
+          throw new Error(data.description || 'Failed to edit summary message on Telegram');
+        }
+      }
+      
+      const { header } = extractSummaryHeaderAndFooter(editingSummary.text, summary.users);
+      const pollId = poll.id;
+      const nextPolls = activePolls.map(p => {
+        if (p.id === pollId && p.sentSummaries) {
+          const nextSummaries = [...p.sentSummaries];
+          nextSummaries[editingSummary.index] = {
+            ...nextSummaries[editingSummary.index],
+            text: editingSummary.text,
+            header: header || nextSummaries[editingSummary.index].header
+          };
+          return { ...p, sentSummaries: nextSummaries };
+        }
+        return p;
+      });
+      
+      setActivePolls(nextPolls);
+      const updatedPoll = nextPolls.find(p => p.id === pollId);
+      if (updatedPoll) savePollToFirebase(updatedPoll);
+      
+      return true;
+    } catch (err: any) {
+      console.error('Failed to edit summary:', err);
+      return false;
+    } finally {
+      setIsSavingSummary(false);
+    }
+  };
+
+  const handleTelegramMessageUpdated = (chatId: string, messageId: number, newText: string) => {
+    let changed = false;
+    const nextPolls = activePolls.map(p => {
+      let pollChanged = false;
+      let nextSummaries = p.sentSummaries;
+      if (nextSummaries) {
+        nextSummaries = nextSummaries.map(s => {
+          if (String(s.chatId) === String(chatId) && Number(s.messageId) === Number(messageId)) {
+            pollChanged = true;
+            changed = true;
+            const { header } = extractSummaryHeaderAndFooter(newText, s.users);
+            return { ...s, text: newText, header: header || s.header };
+          }
+          return s;
+        });
+      }
+
+      let nextLineups = p.sentLineups;
+      if (nextLineups) {
+        nextLineups = nextLineups.map(l => {
+          if (String(l.chatId) === String(chatId) && Number(l.messageId) === Number(messageId)) {
+            pollChanged = true;
+            changed = true;
+            return { ...l, text: newText };
+          }
+          return l;
+        });
+      }
+
+      if (pollChanged) {
+        return { ...p, sentSummaries: nextSummaries, sentLineups: nextLineups };
+      }
+      return p;
+    });
+
+    if (changed) {
+      setActivePolls(nextPolls);
+      nextPolls.forEach(p => {
+        const original = activePolls.find(orig => orig.id === p.id);
+        if (original && original !== p) {
+          savePollToFirebase(p);
+        }
+      });
     }
   };
 
@@ -808,10 +903,12 @@ export function useTelegram(user: any, isAuthReady: boolean) {
         const data = await response.json();
         
         if (preview.optionIndex === -1 && preview.users) {
+          const { header } = extractSummaryHeaderAndFooter(preview.text, preview.users);
           newSummaries.push({
             messageId: data.result.message_id,
             chatId: data.result.chat.id,
             text: preview.text,
+            header: header,
             users: preview.users,
             timestamp: Date.now()
           });
@@ -846,7 +943,6 @@ export function useTelegram(user: any, isAuthReady: boolean) {
       return true;
     } catch (err: any) {
       console.error('Failed to send lineups:', err);
-      alert(`Error: ${err.message}`);
       return false;
     } finally {
       setIsSendingLineup(false);
@@ -1141,6 +1237,8 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     activePolls: pollsWithAnswers,
     isRefreshingPolls,
     isSendingPoll,
+    sendPollError,
+    setSendPollError,
     isSendingLineup,
     isSavingLineup,
     lineupPreviews,
@@ -1160,6 +1258,9 @@ export function useTelegram(user: any, isAuthReady: boolean) {
     permanentlyDeletePoll,
     restorePollFromTelegram,
     handleSaveEditedLineup,
+    handleSaveEditedSummary,
+    isSavingSummary,
+    handleTelegramMessageUpdated,
     handleSendFinalLineups,
     prepareLineups,
     updateVoterAnswer,

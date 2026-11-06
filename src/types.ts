@@ -24,6 +24,7 @@ export interface SentSummary {
   messageId: number;
   chatId: string;
   text: string;
+  header?: string;
   users: {
     userId: number;
     name: string;

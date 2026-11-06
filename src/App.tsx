@@ -38,6 +38,7 @@ export default function App() {
 
   const [selectedPollForDetails, setSelectedPollForDetails] = useState<ActivePoll | null>(null);
   const [editingLineup, setEditingLineup] = useState<{ index: number; text: string } | null>(null);
+  const [editingSummary, setEditingSummary] = useState<{ index: number; text: string } | null>(null);
   const [showPollDetails, setShowPollDetails] = useState(true);
   const [ignoreVoteLimit, setIgnoreVoteLimit] = useState(false);
   
@@ -53,6 +54,8 @@ export default function App() {
     activePolls,
     isRefreshingPolls,
     isSendingPoll,
+    sendPollError,
+    setSendPollError,
     isSendingLineup,
     isSavingLineup,
     lineupPreviews,
@@ -72,6 +75,9 @@ export default function App() {
     permanentlyDeletePoll,
     restorePollFromTelegram,
     handleSaveEditedLineup,
+    handleSaveEditedSummary,
+    isSavingSummary,
+    handleTelegramMessageUpdated,
     handleSendFinalLineups,
     prepareLineups,
     updateVoterAnswer,
@@ -128,22 +134,8 @@ export default function App() {
     setShowSettings(false);
   };
 
-  // Check if last row is filled, if yes, add a new one automatically
-  useEffect(() => {
-    if (structuredOptions.length === 0) return;
-    const lastOption = structuredOptions[structuredOptions.length - 1];
-    if (lastOption.date && lastOption.startTime && lastOption.courtName) {
-      setStructuredOptions(prev => [...prev, {
-        id: Date.now().toString(),
-        date: lastOption.date,
-        startTime: lastOption.startTime,
-        durationHours: lastOption.durationHours,
-        courtName: '',
-      }]);
-    }
-  }, [structuredOptions]);
-
   const handleSendPollSubmit = () => {
+    setSendPollError?.(null);
     const finalOptions = structuredOptions
       .map(o => ({
         text: buildPollOptionText(o.date, o.startTime, o.durationHours, o.courtName),
@@ -151,11 +143,11 @@ export default function App() {
       }))
       .filter(o => o.text.trim().length > 0);
       
-    if (finalOptions.length < 2) return;
+    if (finalOptions.length < 1) return;
     setIsConfirmingSend(true);
   };
 
-  const confirmSendPoll = () => {
+  const confirmSendPoll = async () => {
     const finalOptions = structuredOptions
       .map(o => ({
         text: buildPollOptionText(o.date, o.startTime, o.durationHours, o.courtName),
@@ -163,8 +155,18 @@ export default function App() {
       }))
       .filter(o => o.text.trim().length > 0);
       
-    handleSendPoll(pollQuestion, finalOptions, true);
-    setIsConfirmingSend(false);
+    const success = await handleSendPoll(pollQuestion, finalOptions, true);
+    if (success) {
+      setIsConfirmingSend(false);
+      // Reset form to 1 clean row
+      setStructuredOptions([{
+        id: Date.now().toString(),
+        date: '',
+        startTime: '20:00',
+        durationHours: 2,
+        courtName: '',
+      }]);
+    }
   };
 
   return (
@@ -342,34 +344,59 @@ export default function App() {
                           </div>
                         </div>
 
-                        {structuredOptions.length > 1 && (
-                          <button 
-                            onClick={() => setStructuredOptions(structuredOptions.filter((_, idx) => idx !== i))}
-                            className="absolute sm:relative right-2 top-2 sm:right-auto sm:top-auto p-2 text-neutral-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center"
-                            title="Remove option"
-                          >
-                            <X className="w-5 h-5 sm:w-4 sm:h-4" />
-                          </button>
-                        )}
+                        <button 
+                          onClick={() => {
+                            if (structuredOptions.length > 1) {
+                              setStructuredOptions(structuredOptions.filter((_, idx) => idx !== i));
+                            } else {
+                              setStructuredOptions([{ 
+                                id: Date.now().toString(), 
+                                date: '', 
+                                startTime: '20:00', 
+                                durationHours: 2, 
+                                courtName: '' 
+                              }]);
+                            }
+                          }}
+                          className="absolute sm:relative right-2 top-2 sm:right-auto sm:top-auto p-2 text-neutral-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center"
+                          title={structuredOptions.length > 1 ? "Remove option" : "Clear entry"}
+                        >
+                          <X className="w-5 h-5 sm:w-4 sm:h-4" />
+                        </button>
                       </div>
                     ))}
                   </div>
                   
                   {structuredOptions.length < 10 && (
                     <button 
-                      onClick={() => setStructuredOptions([...structuredOptions, { id: Date.now().toString(), date: '', startTime: '20:00', durationHours: 2, courtName: '' }])}
-                      className="mt-4 text-sm font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-indigo-50 transition-colors"
+                      onClick={() => {
+                        const lastOpt = structuredOptions[structuredOptions.length - 1];
+                        setStructuredOptions([...structuredOptions, { 
+                          id: Date.now().toString(), 
+                          date: lastOpt?.date || '', 
+                          startTime: lastOpt?.startTime || '20:00', 
+                          durationHours: lastOpt?.durationHours || 2, 
+                          courtName: '' 
+                        }]);
+                      }}
+                      className="mt-4 text-sm font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-indigo-50 border border-indigo-200 transition-colors w-fit"
                     >
                       <Plus className="w-4 h-4" />
-                      Add Empty Row
+                      Add Another Option
                     </button>
                   )}
                 </div>
 
+                {sendPollError && (
+                  <div className="p-3 mt-4 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600 flex items-center gap-2">
+                    <span className="font-bold">Error:</span> {sendPollError}
+                  </div>
+                )}
+
                 <div className="pt-4 border-t border-neutral-100 flex items-center gap-4 mt-auto">
                   <button
                     onClick={handleSendPollSubmit}
-                    disabled={isSendingPoll || !pollQuestion.trim() || structuredOptions.filter(o => o.date && o.startTime && o.courtName).length < 2 || !tgBotToken}
+                    disabled={isSendingPoll || !pollQuestion.trim() || structuredOptions.filter(o => o.date && o.startTime && o.courtName).length < 1 || !tgBotToken}
                     className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
                   >
                     {isSendingPoll ? (
@@ -394,6 +421,7 @@ export default function App() {
                 tgBotToken={tgBotToken}
                 tgChatId={tgChatId}
                 activePolls={activePolls}
+                onMessageUpdated={handleTelegramMessageUpdated}
               />
             )}
           </div>
@@ -421,8 +449,22 @@ export default function App() {
         removeSummaryUser={removeSummaryUser}
         editingLineup={editingLineup}
         setEditingLineup={setEditingLineup}
-        handleSaveEditedLineup={() => selectedPollForDetails && editingLineup && handleSaveEditedLineup(selectedPollForDetails, editingLineup)}
+        handleSaveEditedLineup={async () => {
+          if (selectedPollForDetails && editingLineup) {
+            const ok = await handleSaveEditedLineup(selectedPollForDetails, editingLineup);
+            if (ok) setEditingLineup(null);
+          }
+        }}
         isSavingLineup={isSavingLineup}
+        editingSummary={editingSummary}
+        setEditingSummary={setEditingSummary}
+        handleSaveEditedSummary={async () => {
+          if (selectedPollForDetails && editingSummary) {
+            const ok = await handleSaveEditedSummary(selectedPollForDetails, editingSummary);
+            if (ok) setEditingSummary(null);
+          }
+        }}
+        isSavingSummary={isSavingSummary}
         showPollDetails={showPollDetails}
         setShowPollDetails={setShowPollDetails}
         prepareLineups={(poll, targetVoterCounts) => prepareLineups(poll, targetVoterCounts, ignoreVoteLimit)}
