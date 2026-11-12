@@ -11,10 +11,8 @@ export default defineConfig(({mode}) => {
     : (process.env.PORT ? parseInt(process.env.PORT, 10) : 4137);
 
   return {
+    base: './',
     plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
